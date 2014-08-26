@@ -40,6 +40,7 @@ engine/api/geary-named-flags.vala
 engine/api/geary-progress-monitor.vala
 engine/api/geary-search-folder.vala
 engine/api/geary-search-query.vala
+engine/api/geary-service.vala
 engine/api/geary-service-provider.vala
 engine/api/geary-special-folder-type.vala
 

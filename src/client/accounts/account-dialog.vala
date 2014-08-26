@@ -92,8 +92,7 @@ public class AccountDialog : Gtk.Dialog {
             return;
         
         try {
-            yield account.get_passwords_async(Geary.CredentialsMediator.ServiceFlag.IMAP |
-                Geary.CredentialsMediator.ServiceFlag.SMTP);
+            yield account.get_passwords_async(Geary.ServiceFlag.IMAP | Geary.ServiceFlag.SMTP);
         } catch (Error err) {
             debug("Unable to fetch password(s) for account: %s", err.message);
         }

@@ -26,6 +26,12 @@ public class Geary.Endpoint : BaseObject {
         }
     }
     
+    public enum SecurityType {
+        NONE,
+        SSL,
+        STARTTLS
+    }
+    
     public enum AttemptStarttls {
         YES,
         NO,
@@ -36,6 +42,7 @@ public class Geary.Endpoint : BaseObject {
     public Flags flags { get; private set; }
     public uint timeout_sec { get; private set; }
     public TlsCertificateFlags tls_validation_flags { get; set; default = TlsCertificateFlags.VALIDATE_ALL; }
+    public TlsCertificateFlags tls_validation_warnings { get; private set; default = 0; }
     public bool force_ssl3 { get; set; default = false; }
     
     public bool is_ssl { get {
@@ -47,6 +54,10 @@ public class Geary.Endpoint : BaseObject {
     } }
     
     private SocketClient? socket_client = null;
+    private bool tls_warnings_accepted = false;
+    
+    public signal void tls_warnings_detected(SecurityType security, TlsConnection cx,
+        TlsCertificateFlags tls_warnings);
     
     public Endpoint(string host_specifier, uint16 default_port, Flags flags, uint timeout_sec) {
         this.remote_address = new NetworkAddress(host_specifier, default_port);
@@ -54,30 +65,30 @@ public class Geary.Endpoint : BaseObject {
         this.timeout_sec = timeout_sec;
     }
     
-    public SocketClient get_socket_client() {
+    private SocketClient get_socket_client() {
         if (socket_client != null)
             return socket_client;
-
+        
         socket_client = new SocketClient();
-
+        
         if (is_ssl) {
             socket_client.set_tls(true);
             socket_client.set_tls_validation_flags(tls_validation_flags);
             socket_client.event.connect(on_socket_client_event);
         }
-
+        
         socket_client.set_timeout(timeout_sec);
-
+        
         return socket_client;
     }
 
     public async SocketConnection connect_async(Cancellable? cancellable = null) throws Error {
         SocketConnection cx = yield get_socket_client().connect_async(remote_address, cancellable);
-
+        
         TcpConnection? tcp = cx as TcpConnection;
         if (tcp != null)
             tcp.set_graceful_disconnect(flags.is_all_set(Flags.GRACEFUL_DISCONNECT));
-
+        
         return cx;
     }
     
@@ -110,20 +121,27 @@ public class Geary.Endpoint : BaseObject {
     }
     
     private bool on_accept_starttls_certificate(TlsConnection cx, TlsCertificate cert, TlsCertificateFlags flags) {
-        return report_tls_warnings("STARTTLS", flags);
+        return report_tls_warnings(SecurityType.STARTTLS, cx, flags);
     }
     
     private bool on_accept_ssl_certificate(TlsConnection cx, TlsCertificate cert, TlsCertificateFlags flags) {
-        return report_tls_warnings("SSL", flags);
+        return report_tls_warnings(SecurityType.SSL, cx, flags);
     }
     
-    private bool report_tls_warnings(string cx_type, TlsCertificateFlags warnings) {
+    private bool report_tls_warnings(SecurityType security, TlsConnection cx, TlsCertificateFlags warnings) {
         // TODO: Report or verify flags with user, but for now merely log for informational/debugging
         // reasons and accede
-        message("%s TLS warnings connecting to %s: %Xh (%s)", cx_type, to_string(), warnings,
+        message("%s TLS warnings connecting to %s: %Xh (%s)", security.to_string(), to_string(), warnings,
             tls_flags_to_string(warnings));
         
-        return true;
+        tls_validation_warnings = warnings;
+        
+        if (tls_warnings_accepted)
+            return true;
+        
+        tls_warnings_detected(security, cx, warnings);
+        
+        return false;
     }
     
     private string tls_flags_to_string(TlsCertificateFlags flags) {

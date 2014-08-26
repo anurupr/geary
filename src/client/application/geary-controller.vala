@@ -177,6 +177,7 @@ public class GearyController : Geary.BaseObject {
         
         Geary.Engine.instance.account_available.connect(on_account_available);
         Geary.Engine.instance.account_unavailable.connect(on_account_unavailable);
+        Geary.Engine.instance.tls_warnings_detected.connect(on_tls_warnings_detected);
         
         // Connect to various UI signals.
         main_window.conversation_list_view.conversations_selected.connect(on_conversations_selected);
@@ -499,6 +500,11 @@ public class GearyController : Geary.BaseObject {
         close_account(get_account_instance(account_information));
     }
     
+    private void on_tls_warnings_detected(Geary.AccountInformation account_information,
+        Geary.Endpoint endpoint, Geary.Endpoint.SecurityType security, TlsConnection cx,
+        Geary.Service service, TlsCertificateFlags warnings) {
+    }
+    
     private void create_account() {
         Geary.AccountInformation? account_information = request_account_information(null);
         if (account_information != null)
@@ -566,8 +572,8 @@ public class GearyController : Geary.BaseObject {
             }
             
             real_account_information.store_async.begin(cancellable);
-            do_update_stored_passwords_async.begin(Geary.CredentialsMediator.ServiceFlag.IMAP |
-                Geary.CredentialsMediator.ServiceFlag.SMTP, real_account_information);
+            do_update_stored_passwords_async.begin(Geary.ServiceFlag.IMAP | Geary.ServiceFlag.SMTP,
+                real_account_information);
             
             debug("Successfully validated account information");
         }
@@ -635,7 +641,7 @@ public class GearyController : Geary.BaseObject {
         return new_info;
     }
     
-    private async void do_update_stored_passwords_async(Geary.CredentialsMediator.ServiceFlag services,
+    private async void do_update_stored_passwords_async(Geary.ServiceFlag services,
         Geary.AccountInformation account_information) {
         try {
             yield account_information.update_stored_passwords_async(services);

@@ -197,8 +197,7 @@ private class Geary.SmtpOutboxFolder : Geary.AbstractLocalFolder, Geary.FolderSu
             if (_account.information.smtp_credentials != null &&
                 !_account.information.smtp_credentials.is_complete()) {
                 try {
-                    yield _account.information.get_passwords_async(
-                        CredentialsMediator.ServiceFlag.SMTP);
+                    yield _account.information.get_passwords_async(ServiceFlag.SMTP);
                 } catch (Error e) {
                     debug("SMTP password fetch error: %s", e.message);
                 }
@@ -236,8 +235,7 @@ private class Geary.SmtpOutboxFolder : Geary.AbstractLocalFolder, Geary.FolderSu
                     // At this point we may already have a password in memory -- but it's incorrect.
                     // Delete the current password, prompt the user for a new one, and try again.
                     try {
-                        if (yield _account.information.fetch_passwords_async(
-                            CredentialsMediator.ServiceFlag.SMTP, true))
+                        if (yield _account.information.fetch_passwords_async(ServiceFlag.SMTP, true))
                             report = false;
                     } catch (Error e) {
                         debug("Error prompting for SMTP password: %s", e.message);

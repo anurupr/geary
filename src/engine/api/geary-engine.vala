@@ -80,7 +80,11 @@ public class Geary.Engine : BaseObject {
      * Fired when an account is deleted.
      */
     public signal void account_removed(AccountInformation account);
-
+    
+    public signal void tls_warnings_detected(Geary.AccountInformation account_information,
+        Endpoint endpoint, Endpoint.SecurityType security, TlsConnection cx, Service service,
+        TlsCertificateFlags warnings);
+    
     private Engine() {
     }
     
@@ -239,6 +243,8 @@ public class Geary.Engine : BaseObject {
         if (!options.is_all_set(ValidationOption.CHECK_CONNECTIONS))
             return error_code;
         
+        account.tls_warnings_detected.connect(on_tls_warnings_detected);
+        
         // validate IMAP, which requires logging in and establishing an AUTHORIZED cx state
         Geary.Imap.ClientSession? imap_session = new Imap.ClientSession(account.get_imap_endpoint());
         try {
@@ -292,6 +298,8 @@ public class Geary.Engine : BaseObject {
         } finally {
             smtp_session = null;
         }
+        
+        account.tls_warnings_detected.disconnect(on_tls_warnings_detected);
         
         return error_code;
     }
@@ -352,8 +360,11 @@ public class Geary.Engine : BaseObject {
         accounts.set(account.email, account);
 
         if (!already_added) {
+            account.tls_warnings_detected.connect(on_tls_warnings_detected);
+            
             if (created)
                 account_added(account);
+            
             account_available(account);
         }
     }
@@ -372,6 +383,8 @@ public class Geary.Engine : BaseObject {
         }
         
         if (accounts.unset(account.email)) {
+            account.tls_warnings_detected.disconnect(on_tls_warnings_detected);
+            
             // Removal *MUST* be done in the following order:
             // 1. Send the account-unavailable signal.
             account_unavailable(account);
@@ -385,6 +398,11 @@ public class Geary.Engine : BaseObject {
             // 4. Remove the account data from the engine.
             account_instances.unset(account.email);
         }
+    }
+    
+    private void on_tls_warnings_detected(AccountInformation account_information, Endpoint endpoint,
+        Endpoint.SecurityType security, TlsConnection cx, Service service, TlsCertificateFlags warnings) {
+        tls_warnings_detected(account_information, endpoint, security, cx, service, warnings);
     }
 }
 
