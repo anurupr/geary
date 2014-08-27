@@ -111,6 +111,7 @@ public class GearyController : Geary.BaseObject {
     private LoginDialog? login_dialog = null;
     private UpgradeDialog upgrade_dialog;
     private Gee.List<string> pending_mailtos = new Gee.ArrayList<string>();
+    private Geary.Nonblocking.Mutex untrusted_host_prompt_mutex = new Geary.Nonblocking.Mutex();
     
     // List of windows we're waiting to close before Geary closes.
     private Gee.List<ComposerWidget> waiting_to_close = new Gee.ArrayList<ComposerWidget>();
@@ -177,7 +178,7 @@ public class GearyController : Geary.BaseObject {
         
         Geary.Engine.instance.account_available.connect(on_account_available);
         Geary.Engine.instance.account_unavailable.connect(on_account_unavailable);
-        Geary.Engine.instance.tls_warnings_detected.connect(on_tls_warnings_detected);
+        Geary.Engine.instance.untrusted_host.connect(on_untrusted_host);
         
         // Connect to various UI signals.
         main_window.conversation_list_view.conversations_selected.connect(on_conversations_selected);
@@ -500,49 +501,59 @@ public class GearyController : Geary.BaseObject {
         close_account(get_account_instance(account_information));
     }
     
-    private void on_tls_warnings_detected(Geary.AccountInformation account_information,
+    private void on_untrusted_host(Geary.AccountInformation account_information,
         Geary.Endpoint endpoint, Geary.Endpoint.SecurityType security, TlsConnection cx,
         Geary.Service service, TlsCertificateFlags warnings) {
-        prompt_tls_warning_async.begin(account_information, endpoint, security, cx, service, warnings);
+        prompt_untrusted_host_async.begin(account_information, endpoint, security, cx, service, warnings);
     }
     
-    private Geary.Nonblocking.Mutex tls_prompt_mutex = new Geary.Nonblocking.Mutex();
-    
-    private async void prompt_tls_warning_async(Geary.AccountInformation account_information,
+    private async void prompt_untrusted_host_async(Geary.AccountInformation account_information,
         Geary.Endpoint endpoint, Geary.Endpoint.SecurityType security, TlsConnection cx,
         Geary.Service service, TlsCertificateFlags warnings) {
+        int token = Geary.Nonblocking.Mutex.INVALID_TOKEN;
         try {
-            int token = yield tls_prompt_mutex.claim_async();
+            // use a mutex to prevent multiple dialogs popping up at the same time
+            token = yield untrusted_host_prompt_mutex.claim_async();
             
-            // possible while waiting on mutex that this endpoint became trusted
-            if (endpoint.trust_host)
+            // possible while waiting on mutex that this endpoint became trusted or untrusted
+            if (endpoint.trust_untrusted_host != Geary.Trillian.UNKNOWN)
                 return;
             
             CertificateWarningDialog dialog = new CertificateWarningDialog(main_window, endpoint,
                 warnings);
             switch (dialog.run()) {
                 case CertificateWarningDialog.Result.TRUST:
-                    endpoint.trust_host = true;
+                    endpoint.trust_untrusted_host = Geary.Trillian.TRUE;
                 break;
                 
                 case CertificateWarningDialog.Result.ALWAYS_TRUST:
-                    endpoint.trust_host = true;
+                    endpoint.trust_untrusted_host = Geary.Trillian.TRUE;
                     // TODO: Pin certificate
                 break;
                 
                 default:
+                    endpoint.trust_untrusted_host = Geary.Trillian.FALSE;
+                    
                     try {
-                        Geary.Account account = Geary.Engine.instance.get_account_instance(account_information);
-                        close_account(account);
+                        if (Geary.Engine.instance.get_accounts().has_key(account_information.email)) {
+                            Geary.Account account = Geary.Engine.instance.get_account_instance(account_information);
+                            close_account(account);
+                        }
                     } catch (Error err) {
                         message("Unable to close account due to user trust issues: %s", err.message);
                     }
                 break;
             }
-            
-            tls_prompt_mutex.release(ref token);
         } catch (Error err) {
             warning("Unable to prompt for certificate security warning: %s", err.message);
+        } finally {
+            if (token != Geary.Nonblocking.Mutex.INVALID_TOKEN) {
+                try {
+                    untrusted_host_prompt_mutex.release(ref token);
+                } catch (Error err) {
+                    debug("Unable to release mutex: %s", err.message);
+                }
+            }
         }
     }
     

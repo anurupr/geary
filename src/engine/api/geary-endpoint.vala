@@ -42,9 +42,27 @@ public class Geary.Endpoint : BaseObject {
     public Flags flags { get; private set; }
     public uint timeout_sec { get; private set; }
     public TlsCertificateFlags tls_validation_flags { get; set; default = TlsCertificateFlags.VALIDATE_ALL; }
-    public TlsCertificateFlags tls_validation_warnings { get; private set; default = 0; }
     public bool force_ssl3 { get; set; default = false; }
-    public bool trust_host { get; set; default = false; }
+    
+    /**
+     * When set, TLS has reported certificate issues.
+     *
+     * @see trust_untrusted_host
+     * @see untrusted_host
+     */
+    public TlsCertificateFlags tls_validation_warnings { get; private set; default = 0; }
+    
+    /**
+     * When set, indicates the user has acceded to trusting the host even though TLS has reported
+     * certificate issues.
+     *
+     * Initialized to {@link Trillian.UNKNOWN}, meaning the user must decide when warnings are
+     * detected.
+     *
+     * @see untrusted_host
+     * @see tls_validation_warnings
+     */
+    public Trillian trust_untrusted_host { get; set; default = Trillian.UNKNOWN; }
     
     public bool is_ssl { get {
         return flags.is_all_set(Flags.SSL);
@@ -56,7 +74,15 @@ public class Geary.Endpoint : BaseObject {
     
     private SocketClient? socket_client = null;
     
-    public signal void tls_warnings_detected(SecurityType security, TlsConnection cx,
+    /**
+     * Fired when TLS certificate warnings are detected and the caller has not marked this
+     * {@link Endpoint} as trusted via {@link trust_untrusted_host}.
+     *
+     * The connection will be closed when this is fired.  The caller should query the user about
+     * how to deal with the situation.  If user wants to proceed, set {@link trust_untrusted_host}
+     * to {@link Trillian.TRUE} and retry connection.
+     */
+    public signal void untrusted_host(SecurityType security, TlsConnection cx,
         TlsCertificateFlags tls_warnings);
     
     public Endpoint(string host_specifier, uint16 default_port, Flags flags, uint timeout_sec) {
@@ -118,8 +144,6 @@ public class Geary.Endpoint : BaseObject {
             tls_cx.accept_certificate.connect(on_accept_starttls_certificate);
         else
             tls_cx.accept_certificate.connect(on_accept_ssl_certificate);
-        
-        tls_warnings_detected(SecurityType.SSL, tls_cx, TlsCertificateFlags.UNKNOWN_CA);
     }
     
     private bool on_accept_starttls_certificate(TlsConnection cx, TlsCertificate cert, TlsCertificateFlags flags) {
@@ -138,10 +162,12 @@ public class Geary.Endpoint : BaseObject {
         
         tls_validation_warnings = warnings;
         
-        if (trust_host)
+        // if user has marked this untrusted host as trusted already, accept warnings and move on
+        if (trust_untrusted_host == Trillian.TRUE)
             return true;
         
-        tls_warnings_detected(security, cx, warnings);
+        // signal an issue has been detected and return false to deny the connection
+        untrusted_host(security, cx, warnings);
         
         return false;
     }

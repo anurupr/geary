@@ -81,7 +81,14 @@ public class Geary.Engine : BaseObject {
      */
     public signal void account_removed(AccountInformation account);
     
-    public signal void tls_warnings_detected(Geary.AccountInformation account_information,
+    /**
+     * Fired when an {@link Endpoint} associated with the {@link AccountInformation} reports
+     * TLS certificate warnings during connection.
+     *
+     * This may be fired during normal operation or while validating the AccountInformation, in
+     * which case there is no {@link Account} associated with it.
+     */
+    public signal void untrusted_host(Geary.AccountInformation account_information,
         Endpoint endpoint, Endpoint.SecurityType security, TlsConnection cx, Service service,
         TlsCertificateFlags warnings);
     
@@ -243,7 +250,7 @@ public class Geary.Engine : BaseObject {
         if (!options.is_all_set(ValidationOption.CHECK_CONNECTIONS))
             return error_code;
         
-        account.tls_warnings_detected.connect(on_tls_warnings_detected);
+        account.untrusted_host.connect(on_untrusted_host);
         
         // validate IMAP, which requires logging in and establishing an AUTHORIZED cx state
         Geary.Imap.ClientSession? imap_session = new Imap.ClientSession(account.get_imap_endpoint());
@@ -299,7 +306,7 @@ public class Geary.Engine : BaseObject {
             smtp_session = null;
         }
         
-        account.tls_warnings_detected.disconnect(on_tls_warnings_detected);
+        account.untrusted_host.disconnect(on_untrusted_host);
         
         return error_code;
     }
@@ -360,7 +367,7 @@ public class Geary.Engine : BaseObject {
         accounts.set(account.email, account);
 
         if (!already_added) {
-            account.tls_warnings_detected.connect(on_tls_warnings_detected);
+            account.untrusted_host.connect(on_untrusted_host);
             
             if (created)
                 account_added(account);
@@ -383,7 +390,7 @@ public class Geary.Engine : BaseObject {
         }
         
         if (accounts.unset(account.email)) {
-            account.tls_warnings_detected.disconnect(on_tls_warnings_detected);
+            account.untrusted_host.disconnect(on_untrusted_host);
             
             // Removal *MUST* be done in the following order:
             // 1. Send the account-unavailable signal.
@@ -400,9 +407,9 @@ public class Geary.Engine : BaseObject {
         }
     }
     
-    private void on_tls_warnings_detected(AccountInformation account_information, Endpoint endpoint,
+    private void on_untrusted_host(AccountInformation account_information, Endpoint endpoint,
         Endpoint.SecurityType security, TlsConnection cx, Service service, TlsCertificateFlags warnings) {
-        tls_warnings_detected(account_information, endpoint, security, cx, service, warnings);
+        untrusted_host(account_information, endpoint, security, cx, service, warnings);
     }
 }
 

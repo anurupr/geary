@@ -108,7 +108,16 @@ public class Geary.AccountInformation : BaseObject {
     private Endpoint? imap_endpoint = null;
     private Endpoint? smtp_endpoint = null;
     
-    public signal void tls_warnings_detected(Endpoint endpoint, Endpoint.SecurityType security,
+    /**
+     * Indicates the supplied {@link Endpoint} has reported TLS certificate warnings during
+     * connection.
+     *
+     * Since this {@link Endpoint} persists for the lifetime of the {@link AccountInformation},
+     * marking it as trusted once will survive the application session.  It is up to the caller to
+     * pin the certificate appropriately if the user does not want to receive these warnings in
+     * the future.
+     */
+    public signal void untrusted_host(Endpoint endpoint, Endpoint.SecurityType security,
         TlsConnection cx, Service service, TlsCertificateFlags warnings);
     
     // Used to create temporary AccountInformation objects.  (Note that these cannot be saved.)
@@ -186,10 +195,10 @@ public class Geary.AccountInformation : BaseObject {
     
     ~AccountInformation() {
         if (imap_endpoint != null)
-            imap_endpoint.tls_warnings_detected.disconnect(on_imap_tls_warnings_detected);
+            imap_endpoint.untrusted_host.disconnect(on_imap_untrusted_host);
         
         if (smtp_endpoint != null)
-            smtp_endpoint.tls_warnings_detected.disconnect(on_smtp_tls_warnings_detected);
+            smtp_endpoint.untrusted_host.disconnect(on_smtp_untrusted_host);
     }
     
     // Copies all data from the "from" object into this one.
@@ -485,14 +494,14 @@ public class Geary.AccountInformation : BaseObject {
                 assert_not_reached();
         }
         
-        imap_endpoint.tls_warnings_detected.connect(on_imap_tls_warnings_detected);
+        imap_endpoint.untrusted_host.connect(on_imap_untrusted_host);
         
         return imap_endpoint;
     }
     
-    private void on_imap_tls_warnings_detected(Endpoint endpoint, Endpoint.SecurityType security,
+    private void on_imap_untrusted_host(Endpoint endpoint, Endpoint.SecurityType security,
         TlsConnection cx, TlsCertificateFlags warnings) {
-        tls_warnings_detected(endpoint, security, cx, Service.IMAP, warnings);
+        untrusted_host(endpoint, security, cx, Service.IMAP, warnings);
     }
     
     public Endpoint get_smtp_endpoint() {
@@ -527,14 +536,14 @@ public class Geary.AccountInformation : BaseObject {
                 assert_not_reached();
         }
         
-        smtp_endpoint.tls_warnings_detected.connect(on_smtp_tls_warnings_detected);
+        smtp_endpoint.untrusted_host.connect(on_smtp_untrusted_host);
         
         return smtp_endpoint;
     }
     
-    private void on_smtp_tls_warnings_detected(Endpoint endpoint, Endpoint.SecurityType security,
+    private void on_smtp_untrusted_host(Endpoint endpoint, Endpoint.SecurityType security,
         TlsConnection cx, TlsCertificateFlags warnings) {
-        tls_warnings_detected(endpoint, security, cx, Service.SMTP, warnings);
+        untrusted_host(endpoint, security, cx, Service.SMTP, warnings);
     }
     
     private Geary.FolderPath? build_folder_path(Gee.List<string>? parts) {
