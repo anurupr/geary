@@ -347,6 +347,7 @@ client/conversation-viewer/conversation-web-view.vala
 
 client/dialogs/alert-dialog.vala
 client/dialogs/attachment-dialog.vala
+client/dialogs/certificate-warning-dialog.vala
 client/dialogs/password-dialog.vala
 client/dialogs/preferences-dialog.vala
 client/dialogs/upgrade-dialog.vala
@@ -531,6 +532,7 @@ pkg_check_modules(DEPS REQUIRED
     gmime-2.6>=2.6.0
     libsecret-1>=0.11
     libxml-2.0>=2.7.8
+    gcr-3
     ${EXTRA_CLIENT_PKG_CONFIG}
 )
 
@@ -541,7 +543,7 @@ set(ENGINE_PACKAGES
 # webkitgtk-3.0 is listed as a custom VAPI (below) to ensure it's treated as a dependency and
 # built before compilation
 set(CLIENT_PACKAGES
-    gtk+-3.0 libsecret-1 libsoup-2.4 libnotify libcanberra ${EXTRA_CLIENT_PACKAGES}
+    gtk+-3.0 libsecret-1 libsoup-2.4 libnotify libcanberra gcr-3 ${EXTRA_CLIENT_PACKAGES}
 )
 
 set(CONSOLE_PACKAGES

@@ -503,6 +503,28 @@ public class GearyController : Geary.BaseObject {
     private void on_tls_warnings_detected(Geary.AccountInformation account_information,
         Geary.Endpoint endpoint, Geary.Endpoint.SecurityType security, TlsConnection cx,
         Geary.Service service, TlsCertificateFlags warnings) {
+        prompt_tls_warning_async.begin(account_information, endpoint, security, cx, service, warnings);
+    }
+    
+    private Geary.Nonblocking.Mutex tls_prompt_mutex = new Geary.Nonblocking.Mutex();
+    
+    private async void prompt_tls_warning_async(Geary.AccountInformation account_information,
+        Geary.Endpoint endpoint, Geary.Endpoint.SecurityType security, TlsConnection cx,
+        Geary.Service service, TlsCertificateFlags warnings) {
+        try {
+            int token = yield tls_prompt_mutex.claim_async();
+            
+            if (endpoint.trust_host)
+                return;
+            
+            CertificateWarningDialog dialog = new CertificateWarningDialog(main_window, warnings);
+            if (dialog.run())
+                endpoint.trust_host = true;
+            
+            tls_prompt_mutex.release(ref token);
+        } catch (Error err) {
+            warning("Unable to prompt for certificate security warning: %s", err.message);
+        }
     }
     
     private void create_account() {

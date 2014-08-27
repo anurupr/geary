@@ -44,6 +44,7 @@ public class Geary.Endpoint : BaseObject {
     public TlsCertificateFlags tls_validation_flags { get; set; default = TlsCertificateFlags.VALIDATE_ALL; }
     public TlsCertificateFlags tls_validation_warnings { get; private set; default = 0; }
     public bool force_ssl3 { get; set; default = false; }
+    public bool trust_host { get; set; default = false; }
     
     public bool is_ssl { get {
         return flags.is_all_set(Flags.SSL);
@@ -54,7 +55,6 @@ public class Geary.Endpoint : BaseObject {
     } }
     
     private SocketClient? socket_client = null;
-    private bool tls_warnings_accepted = false;
     
     public signal void tls_warnings_detected(SecurityType security, TlsConnection cx,
         TlsCertificateFlags tls_warnings);
@@ -118,6 +118,8 @@ public class Geary.Endpoint : BaseObject {
             tls_cx.accept_certificate.connect(on_accept_starttls_certificate);
         else
             tls_cx.accept_certificate.connect(on_accept_ssl_certificate);
+        
+        tls_warnings_detected(SecurityType.SSL, tls_cx, TlsCertificateFlags.UNKNOWN_CA);
     }
     
     private bool on_accept_starttls_certificate(TlsConnection cx, TlsCertificate cert, TlsCertificateFlags flags) {
@@ -136,7 +138,7 @@ public class Geary.Endpoint : BaseObject {
         
         tls_validation_warnings = warnings;
         
-        if (tls_warnings_accepted)
+        if (trust_host)
             return true;
         
         tls_warnings_detected(security, cx, warnings);
