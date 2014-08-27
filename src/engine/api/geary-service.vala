@@ -4,11 +4,33 @@
  * (version 2.1 or later).  See the COPYING file in this distribution.
  */
 
+/**
+ * The type of mail service provided by a particular destination.
+ */
 public enum Geary.Service {
     IMAP,
     SMTP;
+    
+    /**
+     * Returns a user-visible label for the {@link Service}.
+     */
+    public string user_label() {
+        switch (this) {
+            case IMAP:
+                return _("IMAP");
+            
+            case SMTP:
+                return _("SMTP");
+            
+            default:
+                assert_not_reached();
+        }
+    }
 }
 
+/**
+ * A bitfield of {@link Service}s.
+ */
 [Flags]
 public enum Geary.ServiceFlag {
     IMAP,

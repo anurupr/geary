@@ -66,6 +66,27 @@ public class Geary.Endpoint : BaseObject {
      */
     public Trillian trust_untrusted_host { get; set; default = Trillian.UNKNOWN; }
     
+    /**
+     * Returns true if (a) no TLS warnings have been detected or (b) user has explicitly acceded
+     * to ignoring them and continuing the connection.
+     *
+     * This returns true if no connection has been attempted or connected and STARTTLS has not
+     * been issued.  It's only when a connection is attempted can the certificate be examined
+     * and this can accurately return false.  This behavior allows for a single code path to
+     * first attempt a connection and thereafter only attempt connections when TLS issues have
+     * been resolved by the user.
+     *
+     * @see tls_validation_warnings
+     * @see trust_untrusted_host
+     */
+    public bool is_trusted_or_unconnected {
+        get {
+            return (tls_validation_warnings != 0)
+                ? trust_untrusted_host.is_certain()
+                : trust_untrusted_host.is_possible();
+        }
+    }
+    
     public bool is_ssl { get {
         return flags.is_all_set(Flags.SSL);
     } }

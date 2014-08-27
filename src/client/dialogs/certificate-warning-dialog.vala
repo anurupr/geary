@@ -17,7 +17,8 @@ public class CertificateWarningDialog {
     private Gtk.Label top_label;
     private Gtk.Label warnings_label;
     
-    public CertificateWarningDialog(Gtk.Window? parent, Geary.Endpoint endpoint, TlsCertificateFlags warnings) {
+    public CertificateWarningDialog(Gtk.Window? parent, Geary.Endpoint endpoint, Geary.Service service,
+        TlsCertificateFlags warnings) {
         Gtk.Builder builder = GearyApplication.instance.create_builder("certificate_warning_dialog.glade");
         
         dialog = (Gtk.Dialog) builder.get_object("CertificateWarningDialog");
@@ -27,8 +28,8 @@ public class CertificateWarningDialog {
         dialog.transient_for = parent;
         dialog.modal = true;
         
-        top_label.label = _("The identity of the mail server at %s:%u could not be verified:").printf(
-            endpoint.remote_address.hostname, endpoint.remote_address.port);
+        top_label.label = _("The identity of the %s mail server at %s:%u could not be verified:").printf(
+            service.user_label(), endpoint.remote_address.hostname, endpoint.remote_address.port);
         
         warnings_label.label = generate_warning_list(warnings);
         warnings_label.use_markup = true;

@@ -215,16 +215,26 @@ private class Geary.SmtpOutboxFolder : Geary.AbstractLocalFolder, Geary.FolderSu
             }
             
             // Send the message, but only remove from database once sent
+            bool should_nap = false;
+            bool mail_sent = false;
             try {
-                debug("Outbox postman: Sending \"%s\" (ID:%s)...", message_subject(message),
-                    row.outbox_id.to_string());
-                yield send_email_async(message, null);
+                // only try if (a) no TLS issues or (b) user has acknowledged them and says to
+                // continue
+                if (_account.information.get_smtp_endpoint().is_trusted_or_unconnected) {
+                    debug("Outbox postman: Sending \"%s\" (ID:%s)...", message_subject(message),
+                        row.outbox_id.to_string());
+                    yield send_email_async(message, null);
+                    mail_sent = true;
+                } else {
+                    // user was warned via Geary.Engine signal, need to wait for that to be cleared
+                    // befor sending
+                    outbox_queue.send(row);
+                    should_nap = true;
+                }
             } catch (Error send_err) {
                 debug("Outbox postman send error, retrying: %s", send_err.message);
                 
-                outbox_queue.send(row);
-                
-                bool should_nap = true;
+                should_nap = true;
                 
                 if (send_err is SmtpError.AUTHENTICATION_FAILED) {
                     bool report = true;
@@ -243,16 +253,27 @@ private class Geary.SmtpOutboxFolder : Geary.AbstractLocalFolder, Geary.FolderSu
                     
                     if (report)
                         report_problem(Geary.Account.Problem.SEND_EMAIL_LOGIN_FAILED, send_err);
+                } else if (send_err is TlsError) {
+                    // up to application to be aware of problem via Geary.Engine, but do nap and
+                    // try later
+                    debug("TLS connection warnings connecting to %s, user must confirm connection to continue",
+                        _account.information.get_smtp_endpoint().to_string());
                 } else {
                     report_problem(Geary.Account.Problem.EMAIL_DELIVERY_FAILURE, send_err);
                 }
+            }
+            
+            if (should_nap) {
+                debug("Outbox napping for %u seconds...", send_retry_seconds);
                 
-                if (should_nap) {
-                    // Take a brief nap before continuing to allow connection problems to resolve.
-                    yield Geary.Scheduler.sleep_async(send_retry_seconds);
-                    send_retry_seconds *= 2;
-                    send_retry_seconds = Geary.Numeric.uint_ceiling(send_retry_seconds, MAX_SEND_RETRY_INTERVAL_SEC);
-                }
+                // Take a brief nap before continuing to allow connection problems to resolve.
+                yield Geary.Scheduler.sleep_async(send_retry_seconds);
+                send_retry_seconds = Geary.Numeric.uint_ceiling(send_retry_seconds * 2, MAX_SEND_RETRY_INTERVAL_SEC);
+            }
+            
+            if (!mail_sent) {
+                // don't drop row until it's sent
+                outbox_queue.send(row);
                 
                 continue;
             }

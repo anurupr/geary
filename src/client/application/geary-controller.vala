@@ -520,7 +520,7 @@ public class GearyController : Geary.BaseObject {
                 return;
             
             CertificateWarningDialog dialog = new CertificateWarningDialog(main_window, endpoint,
-                warnings);
+                service, warnings);
             switch (dialog.run()) {
                 case CertificateWarningDialog.Result.TRUST:
                     endpoint.trust_untrusted_host = Geary.Trillian.TRUE;
