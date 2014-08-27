@@ -353,6 +353,7 @@ src/engine/util/util-trillian.vala
 [type: gettext/glade]ui/account_list.glade
 [type: gettext/glade]ui/account_spinner.glade
 [type: gettext/glade]ui/app_menu.interface
+[type: gettext/glade]ui/certificate_warning_dialog.glade
 [type: gettext/glade]ui/composer_accelerators.ui
 [type: gettext/glade]ui/composer.glade
 [type: gettext/glade]ui/find_bar.glade

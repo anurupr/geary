@@ -26,7 +26,7 @@
             <property name="layout_style">end</property>
             <child>
               <object class="GtkButton" id="dont_trust_button">
-                <property name="label" translatable="yes">_Don't trust this host</property>
+                <property name="label" translatable="yes">_Don't Trust This Host</property>
                 <property name="visible">True</property>
                 <property name="can_focus">True</property>
                 <property name="receives_default">True</property>
@@ -40,7 +40,7 @@
             </child>
             <child>
               <object class="GtkButton" id="trust_button">
-                <property name="label" translatable="yes">_Trust this host</property>
+                <property name="label" translatable="yes">_Trust This Host</property>
                 <property name="visible">True</property>
                 <property name="can_focus">True</property>
                 <property name="receives_default">True</property>
@@ -50,6 +50,20 @@
                 <property name="expand">False</property>
                 <property name="fill">True</property>
                 <property name="position">1</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkButton" id="always_trust_button">
+                <property name="label" translatable="yes">_Always Trust This Host</property>
+                <property name="visible">True</property>
+                <property name="can_focus">True</property>
+                <property name="receives_default">True</property>
+                <property name="use_underline">True</property>
+              </object>
+              <packing>
+                <property name="expand">False</property>
+                <property name="fill">True</property>
+                <property name="position">2</property>
               </packing>
             </child>
           </object>
@@ -88,7 +102,7 @@
                   <object class="GtkLabel" id="label1">
                     <property name="visible">True</property>
                     <property name="can_focus">False</property>
-                    <property name="label" translatable="yes">Security Warning</property>
+                    <property name="label" translatable="yes">Untrusted Connection</property>
                     <attributes>
                       <attribute name="weight" value="bold"/>
                     </attributes>
@@ -107,12 +121,12 @@
               </packing>
             </child>
             <child>
-              <object class="GtkLabel" id="label2">
+              <object class="GtkLabel" id="top_label">
                 <property name="visible">True</property>
                 <property name="can_focus">False</property>
                 <property name="margin_top">8</property>
                 <property name="xalign">0</property>
-                <property name="label" translatable="yes">The following security warnings were detected attempting to verify the server's identity:</property>
+                <property name="label">(empty)</property>
                 <property name="wrap">True</property>
               </object>
               <packing>
@@ -137,9 +151,27 @@
                 <property name="position">2</property>
               </packing>
             </child>
+            <child>
+              <object class="GtkLabel" id="label2">
+                <property name="visible">True</property>
+                <property name="can_focus">False</property>
+                <property name="valign">end</property>
+                <property name="xalign">0</property>
+                <property name="label" translatable="yes">Selecting "Don't Trust This Host" will cause Geary to exit.</property>
+                <attributes>
+                  <attribute name="weight" value="bold"/>
+                </attributes>
+              </object>
+              <packing>
+                <property name="expand">False</property>
+                <property name="fill">True</property>
+                <property name="pack_type">end</property>
+                <property name="position">3</property>
+              </packing>
+            </child>
           </object>
           <packing>
-            <property name="expand">False</property>
+            <property name="expand">True</property>
             <property name="fill">True</property>
             <property name="position">1</property>
           </packing>
@@ -149,6 +181,7 @@
     <action-widgets>
       <action-widget response="0">dont_trust_button</action-widget>
       <action-widget response="1">trust_button</action-widget>
+      <action-widget response="2">always_trust_button</action-widget>
     </action-widgets>
   </object>
 </interface>

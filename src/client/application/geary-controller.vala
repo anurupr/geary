@@ -514,12 +514,31 @@ public class GearyController : Geary.BaseObject {
         try {
             int token = yield tls_prompt_mutex.claim_async();
             
+            // possible while waiting on mutex that this endpoint became trusted
             if (endpoint.trust_host)
                 return;
             
-            CertificateWarningDialog dialog = new CertificateWarningDialog(main_window, warnings);
-            if (dialog.run())
-                endpoint.trust_host = true;
+            CertificateWarningDialog dialog = new CertificateWarningDialog(main_window, endpoint,
+                warnings);
+            switch (dialog.run()) {
+                case CertificateWarningDialog.Result.TRUST:
+                    endpoint.trust_host = true;
+                break;
+                
+                case CertificateWarningDialog.Result.ALWAYS_TRUST:
+                    endpoint.trust_host = true;
+                    // TODO: Pin certificate
+                break;
+                
+                default:
+                    try {
+                        Geary.Account account = Geary.Engine.instance.get_account_instance(account_information);
+                        close_account(account);
+                    } catch (Error err) {
+                        message("Unable to close account due to user trust issues: %s", err.message);
+                    }
+                break;
+            }
             
             tls_prompt_mutex.release(ref token);
         } catch (Error err) {
