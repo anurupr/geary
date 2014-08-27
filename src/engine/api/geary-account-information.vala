@@ -462,6 +462,13 @@ public class Geary.AccountInformation : BaseObject {
         }
     }
     
+    /**
+     * Returns the {@link Endpoint} for the account's IMAP service.
+     *
+     * The Endpoint instance is guaranteed to be the same for the lifetime of the
+     * {@link AccountInformation} instance, which is in turn guaranteed to be the same for the
+     * duration of the application session.
+     */
     public Endpoint get_imap_endpoint() {
         if (imap_endpoint != null)
             return imap_endpoint;
@@ -504,6 +511,13 @@ public class Geary.AccountInformation : BaseObject {
         untrusted_host(endpoint, security, cx, Service.IMAP, warnings);
     }
     
+    /**
+     * Returns the {@link Endpoint} for the account's SMTP service.
+     *
+     * The Endpoint instance is guaranteed to be the same for the lifetime of the
+     * {@link AccountInformation} instance, which is in turn guaranteed to be the same for the
+     * duration of the application session.
+     */
     public Endpoint get_smtp_endpoint() {
         if (smtp_endpoint != null)
             return smtp_endpoint;

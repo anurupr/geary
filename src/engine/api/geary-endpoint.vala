@@ -10,6 +10,8 @@
  */
 
 public class Geary.Endpoint : BaseObject {
+    public const string PROP_TRUST_UNTRUSTED_HOST = "trust-untrusted-host";
+    
     [Flags]
     public enum Flags {
         NONE = 0,

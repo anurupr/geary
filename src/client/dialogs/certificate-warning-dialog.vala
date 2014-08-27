@@ -27,8 +27,8 @@ public class CertificateWarningDialog {
         dialog.transient_for = parent;
         dialog.modal = true;
         
-        top_label.label = _("The identity of the mail server at %s could not be verified:").printf(
-            endpoint.remote_address.hostname);
+        top_label.label = _("The identity of the mail server at %s:%u could not be verified:").printf(
+            endpoint.remote_address.hostname, endpoint.remote_address.port);
         
         warnings_label.label = generate_warning_list(warnings);
         warnings_label.use_markup = true;
