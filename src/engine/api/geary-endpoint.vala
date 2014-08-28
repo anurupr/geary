@@ -79,7 +79,7 @@ public class Geary.Endpoint : BaseObject {
      * @see tls_validation_warnings
      * @see trust_untrusted_host
      */
-    public bool is_trusted_or_unconnected {
+    public bool is_trusted_or_never_connected {
         get {
             return (tls_validation_warnings != 0)
                 ? trust_untrusted_host.is_certain()

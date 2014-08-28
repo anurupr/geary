@@ -5,6 +5,7 @@
  */
 
 // Required because Gcr's VAPI is behind-the-times
+// TODO: When bindings available, use async variants of these calls
 extern const string GCR_PURPOSE_SERVER_AUTH;
 extern bool gcr_trust_add_pinned_certificate(Gcr.Certificate cert, string purpose, string peer,
     Cancellable? cancellable) throws Error;
@@ -519,33 +520,56 @@ public class GearyController : Geary.BaseObject {
     private async void prompt_untrusted_host_async(Geary.AccountInformation account_information,
         Geary.Endpoint endpoint, Geary.Endpoint.SecurityType security, TlsConnection cx,
         Geary.Service service, TlsCertificateFlags warnings) {
+        // use a mutex to prevent multiple dialogs popping up at the same time
         int token = Geary.Nonblocking.Mutex.INVALID_TOKEN;
         try {
-            // use a mutex to prevent multiple dialogs popping up at the same time
             token = yield untrusted_host_prompt_mutex.claim_async();
+        } catch (Error err) {
+            message("Unable to lock mutex to prompt user about invalid certificate: %s", err.message);
             
-            // possible while waiting on mutex that this endpoint became trusted or untrusted
-            if (endpoint.trust_untrusted_host != Geary.Trillian.UNKNOWN)
-                return;
+            return;
+        }
+        
+        yield locked_prompt_untrusted_host_async(account_information, endpoint, security, cx,
+            service, warnings);
+        
+        try {
+            untrusted_host_prompt_mutex.release(ref token);
+        } catch (Error err) {
+            message("Unable to release mutex after prompting user about invalid certificate: %s",
+                err.message);
+        }
+    }
+    
+    private async void locked_prompt_untrusted_host_async(Geary.AccountInformation account_information,
+        Geary.Endpoint endpoint, Geary.Endpoint.SecurityType security, TlsConnection cx,
+        Geary.Service service, TlsCertificateFlags warnings) {
+        // possible while waiting on mutex that this endpoint became trusted or untrusted
+        if (endpoint.trust_untrusted_host != Geary.Trillian.UNKNOWN)
+            return;
+        
+        // Convert into a GCR certificate
+        Gcr.Certificate cert = new Gcr.SimpleCertificate(cx.peer_certificate.certificate.data);
+        string peer = "%s:%u".printf(endpoint.remote_address.hostname, endpoint.remote_address.port);
+        
+        // Geary allows for user to auto-revoke all questionable server certificates without
+        // digging around in a keyring/pk manager
+        if (Args.revoke_certs) {
+            debug("Auto-revoking certificate for %s...", peer);
             
-            // Convert into a GCR certificate
-            Gcr.Certificate cert = new Gcr.SimpleCertificate(cx.peer_certificate.certificate.data);
-            string peer = "%s:%u".printf(endpoint.remote_address.hostname, endpoint.remote_address.port);
-            
-            // Geary allows for user to auto-revoke all questionable server certificates without
-            // digging around in a keyring/pk manager
-            if (Args.revoke_certs) {
-                debug("Auto-revoking certificate for %s...", peer);
+            try {
+                gcr_trust_remove_pinned_certificate(cert, GCR_PURPOSE_SERVER_AUTH, peer, null);
+            } catch (Error err) {
+                message("Unable to auto-revoke server certificate for %s: %s", peer, err.message);
                 
-                try {
-                    gcr_trust_remove_pinned_certificate(cert, GCR_PURPOSE_SERVER_AUTH, peer, null);
-                } catch (Error err) {
-                    message("Unable to auto-revoke server certificate for %s: %s", peer, err.message);
-                }
+                // drop through, not absolutely valid to do this (might also mean certificate
+                // was never pinned)
             }
-            
-            // if pinned, the user has already made an exception for this server and its certificate,
-            // so go ahead w/o asking
+        }
+        
+        // if pinned, the user has already made an exception for this server and its certificate,
+        // so go ahead w/o asking
+        try {
             if (gcr_trust_is_certificate_pinned(cert, GCR_PURPOSE_SERVER_AUTH, peer, null)) {
                 debug("Certificate for %s is pinned, accepting connection...", peer);
                 
@@ -553,54 +577,47 @@ public class GearyController : Geary.BaseObject {
                 
                 return;
             }
-            
-            // question the user about this certificate
-            CertificateWarningDialog dialog = new CertificateWarningDialog(main_window, endpoint,
-                service, warnings);
-            switch (dialog.run()) {
-                case CertificateWarningDialog.Result.TRUST:
-                    endpoint.trust_untrusted_host = Geary.Trillian.TRUE;
-                break;
-                
-                case CertificateWarningDialog.Result.ALWAYS_TRUST:
-                    endpoint.trust_untrusted_host = Geary.Trillian.TRUE;
-                    
-                    // pinning the certificate creates an exception for the next time a connection
-                    // is attempted
-                    debug("Pinning certificate for %s...", peer);
-                    try {
-                        gcr_trust_add_pinned_certificate(cert, GCR_PURPOSE_SERVER_AUTH, peer, null);
-                    } catch (Error err) {
-                        ErrorDialog error_dialog = new ErrorDialog(main_window,
-                            _("Unable to store server trust exception"), err.message);
-                        error_dialog.run();
-                    }
-                break;
-                
-                default:
-                    endpoint.trust_untrusted_host = Geary.Trillian.FALSE;
-                    
-                    // close the account; can't go any further w/o offline mode
-                    try {
-                        if (Geary.Engine.instance.get_accounts().has_key(account_information.email)) {
-                            Geary.Account account = Geary.Engine.instance.get_account_instance(account_information);
-                            close_account(account);
-                        }
-                    } catch (Error err) {
-                        message("Unable to close account due to user trust issues: %s", err.message);
-                    }
-                break;
-            }
         } catch (Error err) {
-            warning("Unable to prompt for certificate security warning: %s", err.message);
-        } finally {
-            if (token != Geary.Nonblocking.Mutex.INVALID_TOKEN) {
+            message("Unable to check if server certificate for %s is pinned, assuming not: %s",
+                peer, err.message);
+        }
+        
+        // question the user about this certificate
+        CertificateWarningDialog dialog = new CertificateWarningDialog(main_window, endpoint,
+            service, warnings);
+        switch (dialog.run()) {
+            case CertificateWarningDialog.Result.TRUST:
+                endpoint.trust_untrusted_host = Geary.Trillian.TRUE;
+            break;
+            
+            case CertificateWarningDialog.Result.ALWAYS_TRUST:
+                endpoint.trust_untrusted_host = Geary.Trillian.TRUE;
+                
+                // pinning the certificate creates an exception for the next time a connection
+                // is attempted
+                debug("Pinning certificate for %s...", peer);
                 try {
-                    untrusted_host_prompt_mutex.release(ref token);
+                    gcr_trust_add_pinned_certificate(cert, GCR_PURPOSE_SERVER_AUTH, peer, null);
                 } catch (Error err) {
-                    debug("Unable to release mutex: %s", err.message);
+                    ErrorDialog error_dialog = new ErrorDialog(main_window,
+                        _("Unable to store server trust exception"), err.message);
+                    error_dialog.run();
                 }
-            }
+            break;
+            
+            default:
+                endpoint.trust_untrusted_host = Geary.Trillian.FALSE;
+                
+                // close the account; can't go any further w/o offline mode
+                try {
+                    if (Geary.Engine.instance.get_accounts().has_key(account_information.email)) {
+                        Geary.Account account = Geary.Engine.instance.get_account_instance(account_information);
+                        close_account(account);
+                    }
+                } catch (Error err) {
+                    message("Unable to close account due to user trust issues: %s", err.message);
+                }
+            break;
         }
     }
     

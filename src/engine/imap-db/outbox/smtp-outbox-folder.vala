@@ -220,7 +220,7 @@ private class Geary.SmtpOutboxFolder : Geary.AbstractLocalFolder, Geary.FolderSu
             try {
                 // only try if (a) no TLS issues or (b) user has acknowledged them and says to
                 // continue
-                if (_account.information.get_smtp_endpoint().is_trusted_or_unconnected) {
+                if (_account.information.get_smtp_endpoint().is_trusted_or_never_connected) {
                     debug("Outbox postman: Sending \"%s\" (ID:%s)...", message_subject(message),
                         row.outbox_id.to_string());
                     yield send_email_async(message, null);
