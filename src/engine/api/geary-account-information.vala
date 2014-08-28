@@ -590,6 +590,19 @@ public class Geary.AccountInformation : BaseObject {
         untrusted_host(endpoint, security, cx, Service.SMTP);
     }
     
+    public Geary.Endpoint get_endpoint_for_service(Geary.Service service) {
+        switch (service) {
+            case Service.IMAP:
+                return get_imap_endpoint();
+            
+            case Service.SMTP:
+                return get_smtp_endpoint();
+            
+            default:
+                assert_not_reached();
+        }
+    }
+    
     private Geary.FolderPath? build_folder_path(Gee.List<string>? parts) {
         if (parts == null || parts.size == 0)
             return null;

@@ -593,13 +593,13 @@ public class GearyController : Geary.BaseObject {
         // if these are in validation, there are complex GTK and workflow issues from simply
         // presenting the prompt now, so caller who connected will need to do it on their own dime
         if (!validating_endpoints.contains(endpoint))
-            prompt_for_untrusted_host(main_window, account_information, endpoint, service);
+            prompt_for_untrusted_host(main_window, account_information, endpoint, service, false);
     }
     
     private void prompt_for_untrusted_host(Gtk.Window? parent, Geary.AccountInformation account_information,
-        Geary.Endpoint endpoint, Geary.Service service) {
-        CertificateWarningDialog dialog = new CertificateWarningDialog(parent, endpoint, service,
-            endpoint.tls_validation_warnings);
+        Geary.Endpoint endpoint, Geary.Service service, bool is_validation) {
+        CertificateWarningDialog dialog = new CertificateWarningDialog(parent, account_information,
+            service, endpoint.tls_validation_warnings, is_validation);
         switch (dialog.run()) {
             case CertificateWarningDialog.Result.TRUST:
                 endpoint.trust_untrusted_host = Geary.Trillian.TRUE;
@@ -672,23 +672,11 @@ public class GearyController : Geary.BaseObject {
         else
             parent = main_window;
         
-        Geary.Endpoint endpoint;
-        switch (service) {
-            case Geary.Service.IMAP:
-                endpoint = account_information.get_imap_endpoint();
-            break;
-            
-            case Geary.Service.SMTP:
-                endpoint = account_information.get_smtp_endpoint();
-            break;
-            
-            default:
-                assert_not_reached();
-        }
+        Geary.Endpoint endpoint = account_information.get_endpoint_for_service(service);
         
         // If Endpoint had unresolved TLS issues, prompt user about them
         if (endpoint.tls_validation_warnings != 0 && endpoint.trust_untrusted_host != Geary.Trillian.TRUE) {
-            prompt_for_untrusted_host(parent, account_information, endpoint, service);
+            prompt_for_untrusted_host(parent, account_information, endpoint, service, true);
             prompted = true;
         }
         

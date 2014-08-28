@@ -14,25 +14,56 @@ public class CertificateWarningDialog {
     private const string BULLET = "&#8226; ";
     
     private Gtk.Dialog dialog;
-    private Gtk.Label top_label;
-    private Gtk.Label warnings_label;
     
-    public CertificateWarningDialog(Gtk.Window? parent, Geary.Endpoint endpoint, Geary.Service service,
-        TlsCertificateFlags warnings) {
+    public CertificateWarningDialog(Gtk.Window? parent, Geary.AccountInformation account_information,
+        Geary.Service service, TlsCertificateFlags warnings, bool is_validation) {
         Gtk.Builder builder = GearyApplication.instance.create_builder("certificate_warning_dialog.glade");
         
         dialog = (Gtk.Dialog) builder.get_object("CertificateWarningDialog");
-        top_label = (Gtk.Label) builder.get_object("top_label");
-        warnings_label = (Gtk.Label) builder.get_object("warnings_label");
-        
         dialog.transient_for = parent;
         dialog.modal = true;
         
-        top_label.label = _("The identity of the %s mail server at %s:%u could not be verified:").printf(
+        Gtk.Label title_label = (Gtk.Label) builder.get_object("untrusted_connection_label");
+        Gtk.Label top_label = (Gtk.Label) builder.get_object("top_label");
+        Gtk.Label warnings_label = (Gtk.Label) builder.get_object("warnings_label");
+        Gtk.Label trust_label = (Gtk.Label) builder.get_object("trust_label");
+        Gtk.Label dont_trust_label = (Gtk.Label) builder.get_object("dont_trust_label");
+        Gtk.Label contact_label = (Gtk.Label) builder.get_object("contact_label");
+        
+        title_label.label = _("Untrusted Connection: %s").printf(account_information.email);
+        
+        Geary.Endpoint endpoint = account_information.get_endpoint_for_service(service);
+        top_label.label = _("The identity of the %s mail server at %s:%u could not be verified.").printf(
             service.user_label(), endpoint.remote_address.hostname, endpoint.remote_address.port);
         
         warnings_label.label = generate_warning_list(warnings);
         warnings_label.use_markup = true;
+        
+        trust_label.label =
+            "<b>"
+            +_("Selecting \"Trust This Server\" or \"Always Trust This Server\" may cause your username and password to be transmitted insecurely.")
+            + "</b>";
+        trust_label.use_markup = true;
+        
+        if (is_validation) {
+            // could be a new or existing account
+            dont_trust_label.label =
+                "<b>"
+                + _("Selecting \"Don't Trust This Server\" will cause Geary not to access this server.")
+                + "</b> "
+                + _("Geary will not add or update this email account.");
+        } else {
+            // a registered account
+            dont_trust_label.label =
+                "<b>"
+                + _("Selecting \"Don't Trust This Server\" will cause Geary to stop accessing this account.")
+                + "</b> "
+                + _("Geary will exit if you have no other open email accounts.");
+        }
+        dont_trust_label.use_markup = true;
+        
+        contact_label.label =
+            _("Contact your system administrator or email service provider if you have any question about these issues.");
     }
     
     private static string generate_warning_list(TlsCertificateFlags warnings) {
