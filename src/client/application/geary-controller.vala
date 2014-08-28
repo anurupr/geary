@@ -122,6 +122,7 @@ public class GearyController : Geary.BaseObject {
     private UpgradeDialog upgrade_dialog;
     private Gee.List<string> pending_mailtos = new Gee.ArrayList<string>();
     private Geary.Nonblocking.Mutex untrusted_host_prompt_mutex = new Geary.Nonblocking.Mutex();
+    private Gee.HashSet<Geary.Endpoint> validating_endpoints = new Gee.HashSet<Geary.Endpoint>();
     
     // List of windows we're waiting to close before Geary closes.
     private Gee.List<ComposerWidget> waiting_to_close = new Gee.ArrayList<ComposerWidget>();
@@ -589,12 +590,10 @@ public class GearyController : Geary.BaseObject {
                 peer, err.message);
         }
         
-        // if the login dialog is in play, can't prompt from within its run() loop, so exit here
-        // and let it deal with this after the dialog is finished; see validate_or_retry_async()
-        if (login_dialog != null && login_dialog.visible)
-            return;
-        
-        prompt_for_untrusted_host(main_window, account_information, endpoint, service);
+        // if these are in validation, there are complex GTK and workflow issues from simply
+        // presenting the prompt now, so caller who connected will need to do it on their own dime
+        if (!validating_endpoints.contains(endpoint))
+            prompt_for_untrusted_host(main_window, account_information, endpoint, service);
     }
     
     private void prompt_for_untrusted_host(Gtk.Window? parent, Geary.AccountInformation account_information,
@@ -659,20 +658,12 @@ public class GearyController : Geary.BaseObject {
             login_dialog.hide();
     }
     
-    // Returns null if we are done validating, or the revised account information if we should retry.
-    private async Geary.AccountInformation? validate_or_retry_async(Geary.AccountInformation account_information,
-        Cancellable? cancellable = null) {
-        Geary.Engine.ValidationResult result = yield validate_async(account_information,
-            Geary.Engine.ValidationOption.CHECK_CONNECTIONS, cancellable);
-        if (result == Geary.Engine.ValidationResult.OK)
-            return null;
-        
-        // Because TLS warnings need cycles to process, sleep and give 'em a chance to do their
-        // thing ... note that the signal handler does *not* invoke the user prompt dialog when the
-        // login dialog is in play, so this sleep does not need to worry about user input
-        yield Geary.Scheduler.sleep_ms_async(100);
-        
-        // check Endpoints for trust issues
+    // Returns possibly modified validation results
+    private Geary.Engine.ValidationResult validation_check_endpoint_for_tls_warnings(
+        Geary.AccountInformation account_information, Geary.Service service,
+        Geary.Engine.ValidationResult validation_result, out bool prompted, out bool retry_required) {
+        prompted = false;
+        retry_required = false;
         
         // use LoginDialog for parent only if available and visible
         Gtk.Window? parent;
@@ -681,47 +672,96 @@ public class GearyController : Geary.BaseObject {
         else
             parent = main_window;
         
-        bool prompted = false;
-        bool retry = false;
+        Geary.Endpoint endpoint;
+        switch (service) {
+            case Geary.Service.IMAP:
+                endpoint = account_information.get_imap_endpoint();
+            break;
+            
+            case Geary.Service.SMTP:
+                endpoint = account_information.get_smtp_endpoint();
+            break;
+            
+            default:
+                assert_not_reached();
+        }
         
-        // If IMAP had unresolved TLS issues, prompt user about them
-        Geary.Endpoint endpoint = account_information.get_imap_endpoint();
+        // If Endpoint had unresolved TLS issues, prompt user about them
         if (endpoint.tls_validation_warnings != 0 && endpoint.trust_untrusted_host != Geary.Trillian.TRUE) {
-            prompt_for_untrusted_host(parent, account_information, endpoint, Geary.Service.IMAP);
+            prompt_for_untrusted_host(parent, account_information, endpoint, service);
             prompted = true;
-        } else if (endpoint.tls_validation_warnings != 0 && endpoint.trust_untrusted_host == Geary.Trillian.TRUE) {
-            // If there were TLS connection issues that caused the connection to fail (happens on the
-            // first attempt), clear those errors and retry
-            if ((result & Geary.Engine.ValidationResult.IMAP_CONNECTION_FAILED) != 0) {
-                result &= ~Geary.Engine.ValidationResult.IMAP_CONNECTION_FAILED;
-                retry = true;
+        }
+        
+        // If there are still TLS connection issues that caused the connection to fail (happens on the
+        // first attempt), clear those errors and retry
+        if (endpoint.tls_validation_warnings != 0 && endpoint.trust_untrusted_host == Geary.Trillian.TRUE) {
+            Geary.Engine.ValidationResult flag = (service == Geary.Service.IMAP)
+                ? Geary.Engine.ValidationResult.IMAP_CONNECTION_FAILED
+                : Geary.Engine.ValidationResult.SMTP_CONNECTION_FAILED;
+            
+            if ((validation_result & flag) != 0) {
+                validation_result &= ~flag;
+                retry_required = true;
             }
         }
         
-        // If SMTP had unresolved TLS issues, prompt user about them
-        endpoint = account_information.get_smtp_endpoint();
-        if (endpoint.tls_validation_warnings != 0 && endpoint.trust_untrusted_host != Geary.Trillian.TRUE) {
-            prompt_for_untrusted_host(parent, account_information, endpoint, Geary.Service.SMTP);
-            prompted = true;
-        } else if (endpoint.tls_validation_warnings != 0 && endpoint.trust_untrusted_host == Geary.Trillian.TRUE) {
-            // If there were TLS connection issues that caused the connection to fail (happens on the
-            // first attempt), clear those errors and retry
-            if ((result & Geary.Engine.ValidationResult.SMTP_CONNECTION_FAILED) != 0) {
-                result &= ~Geary.Engine.ValidationResult.SMTP_CONNECTION_FAILED;
-                retry = true;
-            }
-        }
+        return validation_result;
+    }
+    
+    // Use after validating to see if TLS warnings were handled by the user and need to retry the
+    // validation; this will also modify the validation results to better indicate issues to the user
+    //
+    // Returns possibly modified validation results
+    public async Geary.Engine.ValidationResult validation_check_for_tls_warnings_async(
+        Geary.AccountInformation account_information, Geary.Engine.ValidationResult validation_result,
+        out bool retry_required) {
+        retry_required = false;
         
-        // if prompted for user acceptance of bad certificates and they agreed to both, try again;
-        // this will loop back and re-validate, making connections this time and skipping this
-        // entirely
-        if (prompted && account_information.get_imap_endpoint().is_trusted_or_never_connected
+        // Because TLS warnings need cycles to process, sleep and give 'em a chance to do their
+        // thing ... note that the signal handler does *not* invoke the user prompt dialog when the
+        // login dialog is in play, so this sleep does not need to worry about user input
+        yield Geary.Scheduler.sleep_ms_async(100);
+        
+        // check each service for problems, prompting user each time for verification
+        bool imap_prompted, imap_retry_required;
+        validation_result = validation_check_endpoint_for_tls_warnings(account_information,
+            Geary.Service.IMAP, validation_result, out imap_prompted, out imap_retry_required);
+        
+        bool smtp_prompted, smtp_retry_required;
+        validation_result = validation_check_endpoint_for_tls_warnings(account_information,
+            Geary.Service.SMTP, validation_result, out smtp_prompted, out smtp_retry_required);
+        
+        // if prompted for user acceptance of bad certificates and they agreed to both, try again
+        if (imap_prompted && smtp_prompted
+            && account_information.get_imap_endpoint().is_trusted_or_never_connected
             && account_information.get_smtp_endpoint().is_trusted_or_never_connected) {
-            return account_information;
+            retry_required = true;
+        } else if (validation_result == Geary.Engine.ValidationResult.OK) {
+            retry_required = true;
+        } else {
+            // if prompt requires retry or otherwise detected it, retry
+            retry_required = imap_retry_required && smtp_retry_required;
         }
         
-        // if retry required, do it now
-        if (retry)
+        return validation_result;
+    }
+    
+    // Returns null if we are done validating, or the revised account information if we should retry.
+    private async Geary.AccountInformation? validate_or_retry_async(Geary.AccountInformation account_information,
+        Cancellable? cancellable = null) {
+        Geary.Engine.ValidationResult result = yield validate_async(account_information,
+            Geary.Engine.ValidationOption.CHECK_CONNECTIONS, cancellable);
+        if (result == Geary.Engine.ValidationResult.OK)
+            return null;
+        
+        // check Endpoints for trust (TLS) issues
+        bool retry_required;
+        result = yield validation_check_for_tls_warnings_async(account_information, result,
+            out retry_required);
+        
+        // return for retry if required; check can also change validation results, in which case
+        // revalidate entirely to have them written out
+        if (retry_required)
             return account_information;
         
         debug("Validation failed. Prompting user for revised account information");
@@ -745,6 +785,10 @@ public class GearyController : Geary.BaseObject {
     public async Geary.Engine.ValidationResult validate_async(
         Geary.AccountInformation account_information, Geary.Engine.ValidationOption options,
         Cancellable? cancellable = null) {
+        // add Endpoints to set of validating endpoints to prevent the prompt from appearing
+        validating_endpoints.add(account_information.get_imap_endpoint());
+        validating_endpoints.add(account_information.get_smtp_endpoint());
+        
         Geary.Engine.ValidationResult result = Geary.Engine.ValidationResult.OK;
         try {
             result = yield Geary.Engine.instance.validate_account_information_async(account_information,
@@ -755,6 +799,9 @@ public class GearyController : Geary.BaseObject {
             
             return result;
         }
+        
+        validating_endpoints.remove(account_information.get_imap_endpoint());
+        validating_endpoints.remove(account_information.get_smtp_endpoint());
         
         if (result == Geary.Engine.ValidationResult.OK) {
             Geary.AccountInformation real_account_information = account_information;
