@@ -118,7 +118,7 @@ public class Geary.AccountInformation : BaseObject {
      * the future.
      */
     public signal void untrusted_host(Endpoint endpoint, Endpoint.SecurityType security,
-        TlsConnection cx, Service service, TlsCertificateFlags warnings);
+        TlsConnection cx, Service service);
     
     // Used to create temporary AccountInformation objects.  (Note that these cannot be saved.)
     public AccountInformation.temp_copy(AccountInformation copy) {
@@ -507,8 +507,8 @@ public class Geary.AccountInformation : BaseObject {
     }
     
     private void on_imap_untrusted_host(Endpoint endpoint, Endpoint.SecurityType security,
-        TlsConnection cx, TlsCertificateFlags warnings) {
-        untrusted_host(endpoint, security, cx, Service.IMAP, warnings);
+        TlsConnection cx) {
+        untrusted_host(endpoint, security, cx, Service.IMAP);
     }
     
     /**
@@ -556,8 +556,8 @@ public class Geary.AccountInformation : BaseObject {
     }
     
     private void on_smtp_untrusted_host(Endpoint endpoint, Endpoint.SecurityType security,
-        TlsConnection cx, TlsCertificateFlags warnings) {
-        untrusted_host(endpoint, security, cx, Service.SMTP, warnings);
+        TlsConnection cx) {
+        untrusted_host(endpoint, security, cx, Service.SMTP);
     }
     
     private Geary.FolderPath? build_folder_path(Gee.List<string>? parts) {

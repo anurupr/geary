@@ -55,6 +55,11 @@ public class Geary.Endpoint : BaseObject {
     public TlsCertificateFlags tls_validation_warnings { get; private set; default = 0; }
     
     /**
+     * The TLS certificate for an invalid or untrusted connection.
+     */
+    public TlsCertificate? untrusted_certificate { get; private set; default = null; }
+    
+    /**
      * When set, indicates the user has acceded to trusting the host even though TLS has reported
      * certificate issues.
      *
@@ -104,9 +109,10 @@ public class Geary.Endpoint : BaseObject {
      * The connection will be closed when this is fired.  The caller should query the user about
      * how to deal with the situation.  If user wants to proceed, set {@link trust_untrusted_host}
      * to {@link Trillian.TRUE} and retry connection.
+     *
+     * @see tls_validation_warnings
      */
-    public signal void untrusted_host(SecurityType security, TlsConnection cx,
-        TlsCertificateFlags tls_warnings);
+    public signal void untrusted_host(SecurityType security, TlsConnection cx);
     
     public Endpoint(string host_specifier, uint16 default_port, Flags flags, uint timeout_sec) {
         this.remote_address = new NetworkAddress(host_specifier, default_port);
@@ -170,27 +176,29 @@ public class Geary.Endpoint : BaseObject {
     }
     
     private bool on_accept_starttls_certificate(TlsConnection cx, TlsCertificate cert, TlsCertificateFlags flags) {
-        return report_tls_warnings(SecurityType.STARTTLS, cx, flags);
+        return report_tls_warnings(SecurityType.STARTTLS, cx, cert, flags);
     }
     
     private bool on_accept_ssl_certificate(TlsConnection cx, TlsCertificate cert, TlsCertificateFlags flags) {
-        return report_tls_warnings(SecurityType.SSL, cx, flags);
+        return report_tls_warnings(SecurityType.SSL, cx, cert, flags);
     }
     
-    private bool report_tls_warnings(SecurityType security, TlsConnection cx, TlsCertificateFlags warnings) {
+    private bool report_tls_warnings(SecurityType security, TlsConnection cx, TlsCertificate cert,
+        TlsCertificateFlags warnings) {
         // TODO: Report or verify flags with user, but for now merely log for informational/debugging
         // reasons and accede
         message("%s TLS warnings connecting to %s: %Xh (%s)", security.to_string(), to_string(), warnings,
             tls_flags_to_string(warnings));
         
         tls_validation_warnings = warnings;
+        untrusted_certificate = cert;
         
         // if user has marked this untrusted host as trusted already, accept warnings and move on
         if (trust_untrusted_host == Trillian.TRUE)
             return true;
         
         // signal an issue has been detected and return false to deny the connection
-        untrusted_host(security, cx, warnings);
+        untrusted_host(security, cx);
         
         return false;
     }

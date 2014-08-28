@@ -89,8 +89,7 @@ public class Geary.Engine : BaseObject {
      * which case there is no {@link Account} associated with it.
      */
     public signal void untrusted_host(Geary.AccountInformation account_information,
-        Endpoint endpoint, Endpoint.SecurityType security, TlsConnection cx, Service service,
-        TlsCertificateFlags warnings);
+        Endpoint endpoint, Endpoint.SecurityType security, TlsConnection cx, Service service);
     
     private Engine() {
     }
@@ -408,8 +407,8 @@ public class Geary.Engine : BaseObject {
     }
     
     private void on_untrusted_host(AccountInformation account_information, Endpoint endpoint,
-        Endpoint.SecurityType security, TlsConnection cx, Service service, TlsCertificateFlags warnings) {
-        untrusted_host(account_information, endpoint, security, cx, service, warnings);
+        Endpoint.SecurityType security, TlsConnection cx, Service service) {
+        untrusted_host(account_information, endpoint, security, cx, service);
     }
 }
 

@@ -513,13 +513,13 @@ public class GearyController : Geary.BaseObject {
     
     private void on_untrusted_host(Geary.AccountInformation account_information,
         Geary.Endpoint endpoint, Geary.Endpoint.SecurityType security, TlsConnection cx,
-        Geary.Service service, TlsCertificateFlags warnings) {
-        prompt_untrusted_host_async.begin(account_information, endpoint, security, cx, service, warnings);
+        Geary.Service service) {
+        prompt_untrusted_host_async.begin(account_information, endpoint, security, cx, service);
     }
     
     private async void prompt_untrusted_host_async(Geary.AccountInformation account_information,
         Geary.Endpoint endpoint, Geary.Endpoint.SecurityType security, TlsConnection cx,
-        Geary.Service service, TlsCertificateFlags warnings) {
+        Geary.Service service) {
         // use a mutex to prevent multiple dialogs popping up at the same time
         int token = Geary.Nonblocking.Mutex.INVALID_TOKEN;
         try {
@@ -531,7 +531,7 @@ public class GearyController : Geary.BaseObject {
         }
         
         yield locked_prompt_untrusted_host_async(account_information, endpoint, security, cx,
-            service, warnings);
+            service);
         
         try {
             untrusted_host_prompt_mutex.release(ref token);
@@ -541,16 +541,23 @@ public class GearyController : Geary.BaseObject {
         }
     }
     
+    private static void get_gcr_params(Geary.Endpoint endpoint, out Gcr.Certificate cert,
+        out string peer) {
+        cert = new Gcr.SimpleCertificate(endpoint.untrusted_certificate.certificate.data);
+        peer = "%s:%u".printf(endpoint.remote_address.hostname, endpoint.remote_address.port);
+    }
+    
     private async void locked_prompt_untrusted_host_async(Geary.AccountInformation account_information,
         Geary.Endpoint endpoint, Geary.Endpoint.SecurityType security, TlsConnection cx,
-        Geary.Service service, TlsCertificateFlags warnings) {
+        Geary.Service service) {
         // possible while waiting on mutex that this endpoint became trusted or untrusted
         if (endpoint.trust_untrusted_host != Geary.Trillian.UNKNOWN)
             return;
         
-        // Convert into a GCR certificate
-        Gcr.Certificate cert = new Gcr.SimpleCertificate(cx.peer_certificate.certificate.data);
-        string peer = "%s:%u".printf(endpoint.remote_address.hostname, endpoint.remote_address.port);
+        // get GCR parameters
+        Gcr.Certificate cert;
+        string peer;
+        get_gcr_params(endpoint, out cert, out peer);
         
         // Geary allows for user to auto-revoke all questionable server certificates without
         // digging around in a keyring/pk manager
@@ -582,9 +589,18 @@ public class GearyController : Geary.BaseObject {
                 peer, err.message);
         }
         
-        // question the user about this certificate
-        CertificateWarningDialog dialog = new CertificateWarningDialog(main_window, endpoint,
-            service, warnings);
+        // if the login dialog is in play, can't prompt from within its run() loop, so exit here
+        // and let it deal with this after the dialog is finished; see validate_or_retry_async()
+        if (login_dialog != null && login_dialog.visible)
+            return;
+        
+        prompt_for_untrusted_host(main_window, account_information, endpoint, service);
+    }
+    
+    private void prompt_for_untrusted_host(Gtk.Window? parent, Geary.AccountInformation account_information,
+        Geary.Endpoint endpoint, Geary.Service service) {
+        CertificateWarningDialog dialog = new CertificateWarningDialog(parent, endpoint, service,
+            endpoint.tls_validation_warnings);
         switch (dialog.run()) {
             case CertificateWarningDialog.Result.TRUST:
                 endpoint.trust_untrusted_host = Geary.Trillian.TRUE;
@@ -592,6 +608,11 @@ public class GearyController : Geary.BaseObject {
             
             case CertificateWarningDialog.Result.ALWAYS_TRUST:
                 endpoint.trust_untrusted_host = Geary.Trillian.TRUE;
+                
+                // get GCR parameters for pinning
+                Gcr.Certificate cert;
+                string peer;
+                get_gcr_params(endpoint, out cert, out peer);
                 
                 // pinning the certificate creates an exception for the next time a connection
                 // is attempted
@@ -645,6 +666,37 @@ public class GearyController : Geary.BaseObject {
             Geary.Engine.ValidationOption.CHECK_CONNECTIONS, cancellable);
         if (result == Geary.Engine.ValidationResult.OK)
             return null;
+        
+        // check Endpoints for trust issues
+        
+        // use LoginDialog for parent only if available and visible
+        Gtk.Window? parent;
+        if (login_dialog != null && login_dialog.visible)
+            parent = login_dialog;
+        else
+            parent = main_window;
+        
+        bool prompted = false;
+        
+        Geary.Endpoint endpoint = account_information.get_imap_endpoint();
+        if (endpoint.tls_validation_warnings != 0 && endpoint.trust_untrusted_host != Geary.Trillian.TRUE) {
+            prompt_for_untrusted_host(parent, account_information, endpoint, Geary.Service.IMAP);
+            prompted = true;
+        }
+        
+        endpoint = account_information.get_smtp_endpoint();
+        if (endpoint.tls_validation_warnings != 0 && endpoint.trust_untrusted_host != Geary.Trillian.TRUE) {
+            prompt_for_untrusted_host(parent, account_information, endpoint, Geary.Service.SMTP);
+            prompted = true;
+        }
+        
+        // if prompted for user acceptance of bad certificates and they agreed to both, try again;
+        // this will loop back and re-validate, making connections this time and skipping this
+        // entirely
+        if (prompted && account_information.get_imap_endpoint().is_trusted_or_never_connected
+            && account_information.get_smtp_endpoint().is_trusted_or_never_connected) {
+            return account_information;
+        }
         
         debug("Validation failed. Prompting user for revised account information");
         Geary.AccountInformation? new_account_information =
