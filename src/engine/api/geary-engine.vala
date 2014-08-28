@@ -111,6 +111,7 @@ public class Geary.Engine : BaseObject {
         
         is_initialized = true;
         
+        AccountInformation.init();
         Logging.init();
         RFC822.init();
         ImapEngine.init();
@@ -298,7 +299,7 @@ public class Geary.Engine : BaseObject {
         }
         
         try {
-            yield smtp_session.logout_async(cancellable);
+            yield smtp_session.logout_async(true, cancellable);
         } catch (Error err) {
             // ignored
         } finally {

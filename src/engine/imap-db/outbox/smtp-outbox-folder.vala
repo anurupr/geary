@@ -644,7 +644,7 @@ private class Geary.SmtpOutboxFolder : Geary.AbstractLocalFolder, Geary.FolderSu
         
         // always logout
         try {
-            yield smtp.logout_async(cancellable);
+            yield smtp.logout_async(false, cancellable);
         } catch (Error err) {
             debug("Unable to disconnect from SMTP server %s: %s", smtp.to_string(), err.message);
         }

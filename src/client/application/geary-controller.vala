@@ -667,6 +667,11 @@ public class GearyController : Geary.BaseObject {
         if (result == Geary.Engine.ValidationResult.OK)
             return null;
         
+        // Because TLS warnings need cycles to process, sleep and give 'em a chance to do their
+        // thing ... note that the signal handler does *not* invoke the user prompt dialog when the
+        // login dialog is in play, so this sleep does not need to worry about user input
+        yield Geary.Scheduler.sleep_ms_async(100);
+        
         // check Endpoints for trust issues
         
         // use LoginDialog for parent only if available and visible
@@ -677,17 +682,34 @@ public class GearyController : Geary.BaseObject {
             parent = main_window;
         
         bool prompted = false;
+        bool retry = false;
         
+        // If IMAP had unresolved TLS issues, prompt user about them
         Geary.Endpoint endpoint = account_information.get_imap_endpoint();
         if (endpoint.tls_validation_warnings != 0 && endpoint.trust_untrusted_host != Geary.Trillian.TRUE) {
             prompt_for_untrusted_host(parent, account_information, endpoint, Geary.Service.IMAP);
             prompted = true;
+        } else if (endpoint.tls_validation_warnings != 0 && endpoint.trust_untrusted_host == Geary.Trillian.TRUE) {
+            // If there were TLS connection issues that caused the connection to fail (happens on the
+            // first attempt), clear those errors and retry
+            if ((result & Geary.Engine.ValidationResult.IMAP_CONNECTION_FAILED) != 0) {
+                result &= ~Geary.Engine.ValidationResult.IMAP_CONNECTION_FAILED;
+                retry = true;
+            }
         }
         
+        // If SMTP had unresolved TLS issues, prompt user about them
         endpoint = account_information.get_smtp_endpoint();
         if (endpoint.tls_validation_warnings != 0 && endpoint.trust_untrusted_host != Geary.Trillian.TRUE) {
             prompt_for_untrusted_host(parent, account_information, endpoint, Geary.Service.SMTP);
             prompted = true;
+        } else if (endpoint.tls_validation_warnings != 0 && endpoint.trust_untrusted_host == Geary.Trillian.TRUE) {
+            // If there were TLS connection issues that caused the connection to fail (happens on the
+            // first attempt), clear those errors and retry
+            if ((result & Geary.Engine.ValidationResult.SMTP_CONNECTION_FAILED) != 0) {
+                result &= ~Geary.Engine.ValidationResult.SMTP_CONNECTION_FAILED;
+                retry = true;
+            }
         }
         
         // if prompted for user acceptance of bad certificates and they agreed to both, try again;
@@ -697,6 +719,10 @@ public class GearyController : Geary.BaseObject {
             && account_information.get_smtp_endpoint().is_trusted_or_never_connected) {
             return account_information;
         }
+        
+        // if retry required, do it now
+        if (retry)
+            return account_information;
         
         debug("Validation failed. Prompting user for revised account information");
         Geary.AccountInformation? new_account_information =

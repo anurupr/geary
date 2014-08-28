@@ -9,7 +9,7 @@ public class Geary.Smtp.ClientConnection {
     public const uint16 DEFAULT_PORT_SSL = 465;
     public const uint16 DEFAULT_PORT_STARTTLS = 587;
     
-    public const uint DEFAULT_TIMEOUT_SEC = 60;
+    public const uint DEFAULT_TIMEOUT_SEC = 20;
     
     public Geary.Smtp.Capabilities? capabilities { get; private set; default = null; }
     
