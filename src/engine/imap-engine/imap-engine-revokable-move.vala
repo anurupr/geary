@@ -5,18 +5,25 @@
  */
 
 private class Geary.ImapEngine.RevokableMove : Revokable {
-    private Account account;
+    private GenericAccount account;
     private FolderPath original_source;
     private FolderPath original_dest;
     private Gee.Set<Imap.UID> uids;
-    private MinimalFolder? dest_folder = null;
     
-    public RevokableMove(Account account, FolderPath original_source, FolderPath original_dest,
+    public RevokableMove(GenericAccount account, FolderPath original_source, FolderPath original_dest,
         Gee.Set<Imap.UID> uids) {
         this.account = account;
         this.original_source = original_source;
         this.original_dest = original_dest;
         this.uids = uids;
+        
+        account.folders_available_unavailable.connect(on_folders_available_unavailable);
+        account.email_removed.connect(on_folder_email_removed);
+    }
+    
+    ~RevokableMove() {
+        account.folders_available_unavailable.disconnect(on_folders_available_unavailable);
+        account.email_removed.disconnect(on_folder_email_removed);
     }
     
     public override async bool revoke_async(Cancellable? cancellable) throws Error {
@@ -33,6 +40,7 @@ private class Geary.ImapEngine.RevokableMove : Revokable {
     
     private async bool internal_revoke_async(Cancellable? cancellable) throws Error {
         // moving from original destination to original source
+        MinimalFolder? dest_folder = null;
         try {
             Geary.Folder folder = yield account.fetch_folder_async(original_dest, cancellable);
             dest_folder = folder as ImapEngine.MinimalFolder;
@@ -43,14 +51,12 @@ private class Geary.ImapEngine.RevokableMove : Revokable {
         if (dest_folder == null)
             return can_revoke = false;
         
-        // trap removal of the UIDs we're moving
-        dest_folder.uids_removed.connect(on_folder_uids_removed);
-        
         // open, revoke, close, ensuring the close and signal disconnect are performed in all cases
         try {
             yield dest_folder.open_async(Geary.Folder.OpenFlags.NO_DELAY, cancellable);
             
-            if (!yield dest_folder.revoke_move_async(uids, original_source, cancellable))
+            // watch out for messages detected as gone when folder is opened
+            if (can_revoke && !yield dest_folder.revoke_move_async(uids, original_source, cancellable))
                 can_revoke = false;
         } finally {
             // note that the Cancellable is not used
@@ -59,18 +65,38 @@ private class Geary.ImapEngine.RevokableMove : Revokable {
             } catch (Error err) {
                 // ignored
             }
-            
-            dest_folder.uids_removed.disconnect(on_folder_uids_removed);
-            dest_folder = null;
         }
         
         return can_revoke;
     }
     
-    private void on_folder_uids_removed(Gee.Collection<Imap.UID> removed_uids) {
+    private void on_folders_available_unavailable(Gee.List<Folder>? available, Gee.List<Folder>? unavailable) {
+        // look for either of the original folders going away
+        if (unavailable != null) {
+            foreach (Folder folder in unavailable) {
+                if (folder.path.equal_to(original_source) || folder.path.equal_to(original_dest)) {
+                    can_revoke = false;
+                    
+                    break;
+                }
+            }
+        }
+    }
+    
+    private void on_folder_email_removed(Folder folder, Gee.Collection<EmailIdentifier> ids) {
+        // watch for destination folder's UIDs being removed
+        if (!folder.path.equal_to(original_dest))
+            return;
+        
         // one-way switch
         if (!can_revoke)
             return;
+        
+        // convert generic identifiers to UIDs
+        Gee.HashSet<Imap.UID> removed_uids = traverse<EmailIdentifier>(ids)
+            .cast_object<ImapDB.EmailIdentifier>()
+            .map<Imap.UID>(id => id.uid)
+            .to_hash_set();
         
         // otherwise, ability to revoke is best-effort
         uids.remove_all(removed_uids);

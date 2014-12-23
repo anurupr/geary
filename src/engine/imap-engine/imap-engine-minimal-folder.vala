@@ -46,9 +46,6 @@ private class Geary.ImapEngine.MinimalFolder : Geary.AbstractFolder, Geary.Folde
     private uint open_remote_timer_id = 0;
     private int reestablish_delay_msec = DEFAULT_REESTABLISH_DELAY_MSEC;
     
-    // Used by ImapEngine Revokables.
-    public signal void uids_removed(Gee.Collection<Imap.UID> uids);
-    
     public MinimalFolder(GenericAccount account, Imap.Account remote, ImapDB.Account local,
         ImapDB.Folder local_folder, SpecialFolderType special_folder_type) {
         _account = account;
@@ -78,19 +75,6 @@ private class Geary.ImapEngine.MinimalFolder : Geary.AbstractFolder, Geary.Folde
     public override void notify_email_removed(Gee.Collection<Geary.EmailIdentifier> ids) {
         // fire base signal first
         base.notify_email_removed(ids);
-        
-        // parse out UIDs and fire signal for Revokables
-        Gee.HashSet<Imap.UID> uids = new Gee.HashSet<Imap.UID>();
-        foreach (Geary.EmailIdentifier id in ids) {
-            ImapDB.EmailIdentifier? imapdb_id = id as ImapDB.EmailIdentifier;
-            if (imapdb_id != null && imapdb_id.uid != null)
-                uids.add(imapdb_id.uid);
-        }
-        
-        debug("Notifying of %d UIDs removed from %s", uids.size, to_string());
-        
-        if (uids.size > 0)
-            uids_removed(uids);
     }
     
     public void set_special_folder_type(SpecialFolderType new_type) {
@@ -1287,7 +1271,7 @@ private class Geary.ImapEngine.MinimalFolder : Geary.AbstractFolder, Geary.Folde
         replay_queue.schedule(move);
         yield move.wait_for_ready_async(cancellable);
         
-        return new RevokableMove(account, path, destination, move.destination_uids);
+        return new RevokableMove(_account, path, destination, move.destination_uids);
     }
     
     private void on_email_flags_changed(Gee.Map<Geary.EmailIdentifier, Geary.EmailFlags> changed) {
