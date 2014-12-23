@@ -675,15 +675,33 @@ private class Geary.Imap.Folder : BaseObject {
         yield exec_commands_async(cmds, null, null, cancellable);
     }
     
-    public async void copy_email_async(MessageSet msg_set, Geary.FolderPath destination,
+    public async Gee.Set<UID>? copy_email_async(MessageSet msg_set, Geary.FolderPath destination,
         Cancellable? cancellable) throws Error {
         check_open();
         
         CopyCommand cmd = new CopyCommand(msg_set,
             new MailboxSpecifier.from_folder_path(destination, null));
         
-        yield exec_commands_async(Geary.iterate<Command>(cmd).to_array_list(), null,
-            null, cancellable);
+        Gee.Map<Command, StatusResponse> responses = yield exec_commands_async(
+            Geary.iterate<Command>(cmd).to_array_list(), null, null, cancellable);
+        
+        if (!responses.has_key(cmd))
+            return null;
+        
+        StatusResponse response = responses.get(cmd);
+        if (response.response_code != null) {
+            Gee.List<UID>? destination_uids = null;
+            try {
+                response.response_code.get_copyuid(null, null, out destination_uids);
+            } catch (ImapError ierr) {
+                debug("Unable to retrieve COPYUID UIDs: %s", ierr.message);
+            }
+            
+            if (destination_uids != null && destination_uids.size > 0)
+                return Geary.traverse<UID>(destination_uids).to_hash_set();
+        }
+        
+        return null;
     }
     
     public async Gee.SortedSet<Imap.UID>? search_async(SearchCriteria criteria, Cancellable? cancellable)

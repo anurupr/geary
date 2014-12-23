@@ -2265,10 +2265,12 @@ public class GearyController : Geary.BaseObject {
     
     public bool confirm_delete(int num_messages) {
         main_window.present();
-        AlertDialog dialog = new ConfirmationDialog(main_window, ngettext(
-            "Do you want to permanently delete this message?",
-            "Do you want to permanently delete these messages?", num_messages),
-            null, _("Delete"));
+        AlertDialog dialog = new ConfirmationDialog(main_window,
+            ngettext(
+                "Do you want to permanently delete this message?  This operation cannot be undone.",
+                "Do you want to permanently delete these messages?  This operation cannot be undone.",
+                num_messages
+            ), null, _("Delete"));
         
         return (dialog.run() == Gtk.ResponseType.OK);
     }

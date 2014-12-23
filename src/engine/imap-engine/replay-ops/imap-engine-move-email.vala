@@ -5,6 +5,8 @@
  */
 
 private class Geary.ImapEngine.MoveEmail : Geary.ImapEngine.SendReplayOperation {
+    public Gee.Set<Imap.UID>? destination_uids { get; private set; default = null; }
+    
     private MinimalFolder engine;
     private Gee.List<ImapDB.EmailIdentifier> to_move = new Gee.ArrayList<ImapDB.EmailIdentifier>();
     private Geary.FolderPath destination;
@@ -67,12 +69,21 @@ private class Geary.ImapEngine.MoveEmail : Geary.ImapEngine.SendReplayOperation 
         if (cancellable != null && cancellable.is_cancelled())
             throw new IOError.CANCELLED("Move email to %s cancelled", engine.remote_folder.to_string());
         
+        Gee.Set<Imap.UID> acc_uids = new Gee.HashSet<Imap.UID>();
+        
         Gee.List<Imap.MessageSet> msg_sets = Imap.MessageSet.uid_sparse(
             ImapDB.EmailIdentifier.to_uids(moved_ids));
         foreach (Imap.MessageSet msg_set in msg_sets) {
-            yield engine.remote_folder.copy_email_async(msg_set, destination, null);
+            Gee.Set<Imap.UID>? dest_uids = yield engine.remote_folder.copy_email_async(msg_set,
+                destination, null);
+            if (dest_uids != null)
+                acc_uids.add_all(dest_uids);
+            
             yield engine.remote_folder.remove_email_async(msg_set, null);
         }
+        
+        if (acc_uids.size > 0)
+            destination_uids = acc_uids;
         
         return ReplayOperation.Status.COMPLETED;
     }

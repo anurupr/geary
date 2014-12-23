@@ -19,6 +19,9 @@ private class Geary.ImapEngine.GmailFolder : MinimalFolder, FolderSupport.Archiv
     
     public async void archive_email_async(Gee.List<Geary.EmailIdentifier> email_ids,
         Cancellable? cancellable = null) throws Error {
+        // TODO: Use move_email_async("All Mail") here; Gmail will do the right thing and report
+        // it was copied with the All Mail UID (in other words, no actual copy is performed).
+        // Stash returned All Mail identifier as the Undo identifier
         yield expunge_email_async(email_ids, cancellable);
     }
 }
