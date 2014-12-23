@@ -71,7 +71,11 @@ public class MainToolbar : PillHeaderbar {
         Gtk.Box trash_archive = create_pill_buttons(insert);
         insert.clear();
         insert.add(trash_buttons[1] = create_toolbar_button(null, GearyController.ACTION_TRASH_MESSAGE, true));
-        Gtk.Box trash = create_pill_buttons(insert, false);
+        Gtk.Box trash = create_pill_buttons(insert, false, false);
+        
+        insert.clear();
+        insert.add(create_toolbar_button("edit-undo-symbolic", GearyController.ACTION_UNDO));
+        Gtk.Box undo = create_pill_buttons(insert, false, false);
         
         // Search bar.
         search_entry.width_chars = 28;
@@ -90,6 +94,7 @@ public class MainToolbar : PillHeaderbar {
 #if !GTK_3_12
         add_end(trash_archive);
         add_end(trash);
+        add_end(undo);
         add_end(search_upgrade_progress_bar);
         add_end(search_entry);
 #endif
@@ -105,6 +110,7 @@ public class MainToolbar : PillHeaderbar {
 #if GTK_3_12
         add_end(search_entry);
         add_end(search_upgrade_progress_bar);
+        add_end(undo);
         add_end(trash);
         add_end(trash_archive);
 #endif

@@ -46,6 +46,9 @@ private class Geary.ImapEngine.MinimalFolder : Geary.AbstractFolder, Geary.Folde
     private uint open_remote_timer_id = 0;
     private int reestablish_delay_msec = DEFAULT_REESTABLISH_DELAY_MSEC;
     
+    // Used by ImapEngine Revokables.
+    public signal void uids_removed(Gee.Collection<Imap.UID> uids);
+    
     public MinimalFolder(GenericAccount account, Imap.Account remote, ImapDB.Account local,
         ImapDB.Folder local_folder, SpecialFolderType special_folder_type) {
         _account = account;
@@ -70,6 +73,24 @@ private class Geary.ImapEngine.MinimalFolder : Geary.AbstractFolder, Geary.Folde
             warning("Folder %s destroyed without closing", to_string());
         
         local_folder.email_complete.disconnect(on_email_complete);
+    }
+    
+    public override void notify_email_removed(Gee.Collection<Geary.EmailIdentifier> ids) {
+        // fire base signal first
+        base.notify_email_removed(ids);
+        
+        // parse out UIDs and fire signal for Revokables
+        Gee.HashSet<Imap.UID> uids = new Gee.HashSet<Imap.UID>();
+        foreach (Geary.EmailIdentifier id in ids) {
+            ImapDB.EmailIdentifier? imapdb_id = id as ImapDB.EmailIdentifier;
+            if (imapdb_id != null && imapdb_id.uid != null)
+                uids.add(imapdb_id.uid);
+        }
+        
+        debug("Notifying of %d UIDs removed from %s", uids.size, to_string());
+        
+        if (uids.size > 0)
+            uids_removed(uids);
     }
     
     public void set_special_folder_type(SpecialFolderType new_type) {
@@ -1237,32 +1258,36 @@ private class Geary.ImapEngine.MinimalFolder : Geary.AbstractFolder, Geary.Folde
         yield mark.wait_for_ready_async(cancellable);
     }
 
-    public virtual async void copy_email_async(Gee.List<Geary.EmailIdentifier> to_copy,
+    public virtual async Geary.Revokable? copy_email_async(Gee.List<Geary.EmailIdentifier> to_copy,
         Geary.FolderPath destination, Cancellable? cancellable = null) throws Error {
         check_open("copy_email_async");
         check_ids("copy_email_async", to_copy);
         
         // watch for copying to this folder, which is treated as a no-op
         if (destination.equal_to(path))
-            return;
+            return null;
         
         CopyEmail copy = new CopyEmail(this, (Gee.List<ImapDB.EmailIdentifier>) to_copy, destination);
         replay_queue.schedule(copy);
         yield copy.wait_for_ready_async(cancellable);
+        
+        return null;
     }
 
-    public virtual async void move_email_async(Gee.List<Geary.EmailIdentifier> to_move,
+    public virtual async Geary.Revokable? move_email_async(Gee.List<Geary.EmailIdentifier> to_move,
         Geary.FolderPath destination, Cancellable? cancellable = null) throws Error {
         check_open("move_email_async");
         check_ids("move_email_async", to_move);
         
         // watch for moving to this folder, which is treated as a no-op
         if (destination.equal_to(path))
-            return;
+            return null;
         
         MoveEmail move = new MoveEmail(this, (Gee.List<ImapDB.EmailIdentifier>) to_move, destination);
         replay_queue.schedule(move);
         yield move.wait_for_ready_async(cancellable);
+        
+        return new RevokableMove(account, path, destination, move.destination_uids);
     }
     
     private void on_email_flags_changed(Gee.Map<Geary.EmailIdentifier, Geary.EmailFlags> changed) {
@@ -1358,6 +1383,28 @@ private class Geary.ImapEngine.MinimalFolder : Geary.AbstractFolder, Geary.Folde
             yield remove_folder.remove_single_email_async(ret, null);
         
         return ret;
+    }
+    
+    // To be used only by RevokableMove.  Return false if UIDs are unknown to local store.
+    internal async bool revoke_move_async(Gee.Collection<Imap.UID> uids, FolderPath source,
+        Cancellable? cancellable) throws Error {
+        check_open("revoke_move_async");
+        
+        // need to wait for fully open to ensure UIDs are normalized between local and remove
+        yield wait_for_open_async(cancellable);
+        
+        Gee.Set<ImapDB.EmailIdentifier>? ids = yield local_folder.get_ids_async(uids,
+            ImapDB.Folder.ListFlags.NONE, cancellable);
+        if (ids == null || ids.size == 0)
+            return false;
+        
+        MoveEmail move = new MoveEmail(this, traverse<ImapDB.EmailIdentifier>(ids).to_array_list(),
+            source, cancellable);
+        replay_queue.schedule(move);
+        
+        yield move.wait_for_ready_async(cancellable);
+        
+        return true;
     }
 }
 

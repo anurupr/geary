@@ -38,6 +38,7 @@ engine/api/geary-logging.vala
 engine/api/geary-named-flag.vala
 engine/api/geary-named-flags.vala
 engine/api/geary-progress-monitor.vala
+engine/api/geary-revokable.vala
 engine/api/geary-search-folder.vala
 engine/api/geary-search-query.vala
 engine/api/geary-service.vala
@@ -191,6 +192,7 @@ engine/imap-engine/imap-engine-generic-folder.vala
 engine/imap-engine/imap-engine-minimal-folder.vala
 engine/imap-engine/imap-engine-replay-operation.vala
 engine/imap-engine/imap-engine-replay-queue.vala
+engine/imap-engine/imap-engine-revokable-move.vala
 engine/imap-engine/imap-engine-send-replay-operation.vala
 engine/imap-engine/gmail/imap-engine-gmail-account.vala
 engine/imap-engine/gmail/imap-engine-gmail-folder.vala

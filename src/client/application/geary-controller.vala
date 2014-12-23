@@ -48,6 +48,7 @@ public class GearyController : Geary.BaseObject {
     public const string ACTION_MOVE_MENU = "GearyMoveMenuButton";
     public const string ACTION_GEAR_MENU = "GearyGearMenuButton";
     public const string ACTION_SEARCH = "GearySearch";
+    public const string ACTION_UNDO = "GearyUndo";
     
     public const string PROP_CURRENT_CONVERSATION ="current-conversations";
     
@@ -124,6 +125,7 @@ public class GearyController : Geary.BaseObject {
     private Gee.List<string> pending_mailtos = new Gee.ArrayList<string>();
     private Geary.Nonblocking.Mutex untrusted_host_prompt_mutex = new Geary.Nonblocking.Mutex();
     private Gee.HashSet<Geary.Endpoint> validating_endpoints = new Gee.HashSet<Geary.Endpoint>();
+    private Geary.Revokable? revokable = null;
     
     // List of windows we're waiting to close before Geary closes.
     private Gee.List<ComposerWidget> waiting_to_close = new Gee.ArrayList<ComposerWidget>();
@@ -236,6 +238,9 @@ public class GearyController : Geary.BaseObject {
         
         // instantiate here to ensure that Config is initialized and ready
         autostart_manager = new AutostartManager();
+        
+        // initialize revokable
+        save_revokable(null, null);
         
         // Start Geary.
         try {
@@ -409,6 +414,9 @@ public class GearyController : Geary.BaseObject {
         Gtk.ActionEntry search = { ACTION_SEARCH, null, null, null, null, on_search };
         entries += search;
         add_accelerator("<Ctrl>S", ACTION_SEARCH);
+        
+        Gtk.ActionEntry undo = { ACTION_UNDO, null, null, "<Ctrl>Z", null, on_revoke };
+        entries += undo;
         
         return entries;
     }
@@ -2297,10 +2305,13 @@ public class GearyController : Geary.BaseObject {
             debug("Archiving selected messages");
             
             Geary.FolderSupport.Archive? supports_archive = current_folder as Geary.FolderSupport.Archive;
-            if (supports_archive == null)
+            if (supports_archive == null) {
                 debug("Folder %s doesn't support archive", current_folder.to_string());
-            else
-                yield supports_archive.archive_email_async(ids, cancellable);
+            } else {
+                save_revokable(yield supports_archive.archive_email_async(ids, cancellable),
+                    _("Undo archive"));
+            }
+            
             return;
         }
         
@@ -2312,7 +2323,9 @@ public class GearyController : Geary.BaseObject {
                     Geary.SpecialFolderType.TRASH, cancellable)).path;
                 Geary.FolderSupport.Move? supports_move = current_folder as Geary.FolderSupport.Move;
                 if (supports_move != null) {
-                    yield supports_move.move_email_async(ids, trash_path, cancellable);
+                    save_revokable(yield supports_move.move_email_async(ids, trash_path, cancellable),
+                        _("Undo trash"));
+                    
                     return;
                 }
             }
@@ -2340,6 +2353,48 @@ public class GearyController : Geary.BaseObject {
             archive_or_delete_selection_async.end(result);
         } catch (Error e) {
             debug("Unable to archive/trash/delete messages: %s", e.message);
+        }
+    }
+    
+    private void save_revokable(Geary.Revokable? new_revokable, string? description) {
+        // disconnect old revokable
+        if (revokable != null)
+            revokable.notify[Geary.Revokable.PROP_CAN_REVOKE].disconnect(on_can_revoke_changed);
+        
+        // store new revokable
+        revokable = new_revokable;
+        
+        // connect to new revokable
+        if (revokable != null)
+            revokable.notify[Geary.Revokable.PROP_CAN_REVOKE].connect(on_can_revoke_changed);
+        
+        Gtk.Action undo_action = GearyApplication.instance.get_action(ACTION_UNDO);
+        undo_action.sensitive = revokable != null && revokable.can_revoke;
+        undo_action.tooltip = (revokable != null && description != null) ? description : "";
+    }
+    
+    private void on_can_revoke_changed() {
+        // remove revokable if it goes invalid
+        if (revokable != null && !revokable.can_revoke)
+            save_revokable(null, null);
+    }
+    
+    private void on_revoke() {
+        if (revokable != null && revokable.can_revoke)
+            revokable.revoke_async.begin(null, on_revoke_completed);
+    }
+    
+    private void on_revoke_completed(Object? object, AsyncResult result) {
+        // Don't use the "revokable" instance because it might have gone null before this callback
+        // was reached
+        Geary.Revokable? origin = object as Geary.Revokable;
+        if (origin == null)
+            return;
+        
+        try {
+            origin.revoke_async.end(result);
+        } catch (Error err) {
+            debug("Unable to revoke operation: %s", err.message);
         }
     }
     

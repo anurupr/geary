@@ -20,8 +20,10 @@ public interface Geary.FolderSupport.Copy : Geary.Folder {
      * but will return success.
      *
      * The Folder must be opened prior to attempting this operation.
+     *
+     * @returns A {@link Geary.Revokable} that may be used to revoke (undo) this operation later.
      */
-    public abstract async void copy_email_async(Gee.List<Geary.EmailIdentifier> to_copy,
+    public abstract async Geary.Revokable? copy_email_async(Gee.List<Geary.EmailIdentifier> to_copy,
         Geary.FolderPath destination, Cancellable? cancellable = null) throws Error;
 }
 
