@@ -8,14 +8,18 @@ private class Geary.ImapEngine.RevokableMove : Revokable {
     private GenericAccount account;
     private FolderPath original_source;
     private FolderPath original_dest;
-    private Gee.Set<Imap.UID> uids;
+    private Gee.Set<ImapDB.EmailIdentifier> destination_ids;
     
+    /**
+     * Supplied EmailIdentifiers *must* be loaded with UIDs of the messages on the *destination*
+     * folder.  Do *not* merely stuff in here the EmailIdentifier from the source folder.
+     */
     public RevokableMove(GenericAccount account, FolderPath original_source, FolderPath original_dest,
-        Gee.Set<Imap.UID> uids) {
+        Gee.Set<ImapDB.EmailIdentifier> destination_ids) {
         this.account = account;
         this.original_source = original_source;
         this.original_dest = original_dest;
-        this.uids = uids;
+        this.destination_ids = destination_ids;
         
         account.folders_available_unavailable.connect(on_folders_available_unavailable);
         account.email_removed.connect(on_folder_email_removed);
@@ -56,8 +60,10 @@ private class Geary.ImapEngine.RevokableMove : Revokable {
             yield dest_folder.open_async(Geary.Folder.OpenFlags.NO_DELAY, cancellable);
             
             // watch out for messages detected as gone when folder is opened
-            if (can_revoke && !yield dest_folder.revoke_move_async(uids, original_source, cancellable))
+            if (can_revoke && !yield dest_folder.revoke_move_async(destination_ids, original_source,
+                cancellable)) {
                 can_revoke = false;
+            }
         } finally {
             // note that the Cancellable is not used
             try {
@@ -99,8 +105,13 @@ private class Geary.ImapEngine.RevokableMove : Revokable {
             .to_hash_set();
         
         // otherwise, ability to revoke is best-effort
-        uids.remove_all(removed_uids);
-        can_revoke = uids.size > 0;
+        Gee.Iterator<ImapDB.EmailIdentifier> iter = destination_ids.iterator();
+        while (iter.next()) {
+            if (removed_uids.contains(iter.get().uid))
+                iter.remove();
+        }
+        
+        can_revoke = destination_ids.size > 0;
     }
 }
 

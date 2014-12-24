@@ -286,6 +286,7 @@ public class Geary.App.ConversationMonitor : BaseObject {
         folder.opened.connect(on_folder_opened);
         folder.account.email_flags_changed.connect(on_account_email_flags_changed);
         folder.account.email_locally_complete.connect(on_account_email_locally_complete);
+        folder.account.predict_email_inserted.connect(on_account_predict_email_inserted);
         // TODO: handle removed email
         
         try {
@@ -299,6 +300,7 @@ public class Geary.App.ConversationMonitor : BaseObject {
             folder.opened.disconnect(on_folder_opened);
             folder.account.email_flags_changed.disconnect(on_account_email_flags_changed);
             folder.account.email_locally_complete.disconnect(on_account_email_locally_complete);
+            folder.account.predict_email_inserted.disconnect(on_account_predict_email_inserted);
             
             throw err;
         }
@@ -348,6 +350,7 @@ public class Geary.App.ConversationMonitor : BaseObject {
         folder.opened.disconnect(on_folder_opened);
         folder.account.email_flags_changed.disconnect(on_account_email_flags_changed);
         folder.account.email_locally_complete.disconnect(on_account_email_locally_complete);
+        folder.account.predict_email_inserted.disconnect(on_account_predict_email_inserted);
         
         Error? close_err = null;
         if (close_folder) {
@@ -630,6 +633,18 @@ public class Geary.App.ConversationMonitor : BaseObject {
         operation_queue.add(new ExternalAppendOperation(this, folder, complete_ids));
     }
     
+    private void on_account_predict_email_inserted(Geary.Folder folder,
+        Gee.Collection<Geary.EmailIdentifier> complete_ids) {
+        debug("PREDICTED: %s %d", folder.to_string(), complete_ids.size);
+        
+        // only load in predicted emails going to monitored folder; don't attempt to merge in
+        // all messages predicted anywhere in the account
+        if (this.folder != folder)
+            return;
+        
+        operation_queue.add(new PredictInsertOperation(this, complete_ids));
+    }
+    
     internal async void append_emails_async(Gee.Collection<Geary.EmailIdentifier> appended_ids) {
         debug("%d message(s) appended to %s, fetching to add to conversations...", appended_ids.size,
             folder.to_string());
@@ -675,6 +690,28 @@ public class Geary.App.ConversationMonitor : BaseObject {
             folder.to_string());
         
         yield external_load_by_sparse_id(folder, appended_ids, Geary.Folder.ListFlags.NONE, null);
+    }
+    
+    internal async void predict_emails_async(Gee.Collection<Geary.EmailIdentifier> ids) {
+        debug("Loading predicted local email: %d", ids.size);
+        Gee.ArrayList<Geary.Email> emails = new Gee.ArrayList<Geary.Email>();
+        foreach (Geary.EmailIdentifier id in ids) {
+            try {
+                emails.add(yield folder.account.local_fetch_email_async(id, required_fields));
+            } catch (Error err) {
+                // Ignore error; INCOMPLETE and NOT_FOUND are just part of the fuzziness of
+                // prediction
+                debug("Unable to locally fetch predicted email in %s: %s", folder.to_string(),
+                    err.message);
+            }
+        }
+        
+        debug("Loaded predicted local email: %d", emails.size);
+        
+        if (emails.size == 0)
+            return;
+        
+        yield process_email_async(emails, new ProcessJobContext(false));
     }
     
     private void on_account_email_flags_changed(Geary.Folder folder,

@@ -109,6 +109,20 @@ public interface Geary.Account : BaseObject {
         Gee.Map<Geary.EmailIdentifier, Geary.EmailFlags> map);
     
     /**
+     * Fired when email is predicted to be inserted into the {@link Folder}.
+     *
+     * @see Folder.predict_email_inserted
+     */
+    public signal void predict_email_inserted(Geary.Folder folder, Gee.Collection<Geary.EmailIdentifier> ids);
+    
+    /**
+     * Fired when email predicted to be inserted into the {@link Folder} will not be arriving.
+     *
+     * @see Folder.unpredict_email_inserted
+     */
+    public signal void unpredict_email_inserted(Geary.Folder folder, Gee.Collection<Geary.EmailIdentifier> ids);
+    
+    /**
      * Signal notification method for subclasses to use.
      */
     protected abstract void notify_opened();
@@ -177,6 +191,12 @@ public interface Geary.Account : BaseObject {
      */
     protected abstract void notify_email_flags_changed(Geary.Folder folder,
         Gee.Map<Geary.EmailIdentifier, Geary.EmailFlags> flag_map);
+    
+    protected abstract void notify_predict_email_inserted(Geary.Folder folder,
+        Gee.Collection<Geary.EmailIdentifier> ids);
+    
+    protected abstract void notify_unpredict_email_inserted(Geary.Folder folder,
+        Gee.Collection<Geary.EmailIdentifier> ids);
     
     /**
      * A utility method to sort a Gee.Collection of {@link Folder}s by their {@link FolderPath}s

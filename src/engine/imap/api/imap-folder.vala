@@ -675,7 +675,7 @@ private class Geary.Imap.Folder : BaseObject {
         yield exec_commands_async(cmds, null, null, cancellable);
     }
     
-    public async Gee.Set<UID>? copy_email_async(MessageSet msg_set, Geary.FolderPath destination,
+    public async Gee.List<UID>? copy_email_async(MessageSet msg_set, Geary.FolderPath destination,
         Cancellable? cancellable) throws Error {
         check_open();
         

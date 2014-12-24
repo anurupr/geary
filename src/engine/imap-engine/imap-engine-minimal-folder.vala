@@ -1271,7 +1271,7 @@ private class Geary.ImapEngine.MinimalFolder : Geary.AbstractFolder, Geary.Folde
         replay_queue.schedule(move);
         yield move.wait_for_ready_async(cancellable);
         
-        return new RevokableMove(_account, path, destination, move.destination_uids);
+        return new RevokableMove(_account, path, destination, move.destination_ids);
     }
     
     private void on_email_flags_changed(Gee.Map<Geary.EmailIdentifier, Geary.EmailFlags> changed) {

@@ -259,6 +259,29 @@ public interface Geary.Folder : BaseObject {
     public signal void email_count_changed(int new_count, CountChangeReason reason);
     
     /**
+     * Fired when an operation on another {@link Folder} predicts that email will be inserted
+     * into this Folder.
+     *
+     * It should ''not'' be assumed that the email identifiers can be loaded from this Folder,
+     * especially since this can be fired when the Folder is closed.  Use
+     * {@link Account.local_fetch_email_async} to fetch whatever portion of the email is locally
+     * available without regards to folder association.
+     *
+     * Since it's unknown what the predicted email's ordering will be on the remote folder, there
+     * is no predict_email_appended.
+     */
+    public signal void predict_email_inserted(Gee.Collection<Geary.EmailIdentifier> ids);
+    
+    /**
+     * Fired when an operation on another {@link Folder} predicted that email will be inserted into
+     * this Folder, but that prediction is now incorrect.
+     *
+     * This most often occurs because the original prediction was made ''before'' the remote
+     * operation took place, and then the operation failed.
+     */
+    public signal void unpredict_email_inserted(Gee.Collection<Geary.EmailIdentifier> ids);
+    
+    /**
      * Fired when the supplied email flags have changed, whether due to local action or reported by
      * the server.
      */
@@ -303,6 +326,10 @@ public interface Geary.Folder : BaseObject {
     protected abstract void notify_email_removed(Gee.Collection<Geary.EmailIdentifier> ids);
     
     protected abstract void notify_email_count_changed(int new_count, CountChangeReason reason);
+    
+    protected abstract void notify_predict_email_inserted(Gee.Collection<Geary.EmailIdentifier> ids);
+    
+    protected abstract void notify_unpredict_email_inserted(Gee.Collection<Geary.EmailIdentifier> ids);
     
     protected abstract void notify_email_flags_changed(Gee.Map<Geary.EmailIdentifier,
         Geary.EmailFlags> flag_map);

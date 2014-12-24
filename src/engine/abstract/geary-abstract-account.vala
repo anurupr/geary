@@ -63,6 +63,16 @@ public abstract class Geary.AbstractAccount : BaseObject, Geary.Account {
         email_flags_changed(folder, flag_map);
     }
     
+    protected virtual void notify_predict_email_inserted(Geary.Folder folder,
+        Gee.Collection<Geary.EmailIdentifier> ids) {
+        predict_email_inserted(folder, ids);
+    }
+    
+    protected virtual void notify_unpredict_email_inserted(Geary.Folder folder,
+        Gee.Collection<Geary.EmailIdentifier> ids) {
+        unpredict_email_inserted(folder, ids);
+    }
+    
     protected virtual void notify_opened() {
         opened();
     }

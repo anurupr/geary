@@ -5,7 +5,7 @@
  */
 
 private class Geary.ImapEngine.MoveEmail : Geary.ImapEngine.SendReplayOperation {
-    public Gee.Set<Imap.UID>? destination_uids { get; private set; default = null; }
+    public Gee.Set<ImapDb.EmailIdentifier>? destination_ids { get; private set; default = null; }
     
     private MinimalFolder engine;
     private Gee.List<ImapDB.EmailIdentifier> to_move = new Gee.ArrayList<ImapDB.EmailIdentifier>();
@@ -52,6 +52,13 @@ private class Geary.ImapEngine.MoveEmail : Geary.ImapEngine.SendReplayOperation 
         engine.notify_email_count_changed(Numeric.int_floor(original_count - to_move.size, 0),
             Geary.Folder.CountChangeReason.REMOVED);
         
+        MinimalFolder? dest_folder = (yield engine.account.fetch_folder_async(destination, cancellable))
+            as MinimalFolder;
+        if (dest_folder != null) {
+            debug("NOTIFY PREDICTED: %d", moved_ids.size);
+            dest_folder.notify_predict_email_inserted(moved_ids);
+        }
+        
         return ReplayOperation.Status.CONTINUE;
     }
     
@@ -69,7 +76,9 @@ private class Geary.ImapEngine.MoveEmail : Geary.ImapEngine.SendReplayOperation 
         if (cancellable != null && cancellable.is_cancelled())
             throw new IOError.CANCELLED("Move email to %s cancelled", engine.remote_folder.to_string());
         
-        Gee.Set<Imap.UID> acc_uids = new Gee.HashSet<Imap.UID>();
+        // TODO: Need to generate fully-valid ImapDB.EmailIdentifiers for the destination folder
+        // (with message_ids and UIDs properly associated)
+        Gee.Set<ImapDB.EmailIdentifier> acc_ids = new Gee.HashSet<ImapDB.EmailIdentifier>();
         
         Gee.List<Imap.MessageSet> msg_sets = Imap.MessageSet.uid_sparse(
             ImapDB.EmailIdentifier.to_uids(moved_ids));
@@ -93,6 +102,11 @@ private class Geary.ImapEngine.MoveEmail : Geary.ImapEngine.SendReplayOperation 
         
         engine.notify_email_inserted(moved_ids);
         engine.notify_email_count_changed(original_count, Geary.Folder.CountChangeReason.INSERTED);
+        
+        MinimalFolder? dest_folder = (yield engine.account.fetch_folder_async(destination, cancellable))
+            as MinimalFolder;
+        if (dest_folder != null)
+            dest_folder.notify_unpredict_email_inserted(moved_ids);
     }
 
     public override string describe_state() {

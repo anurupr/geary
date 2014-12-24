@@ -60,6 +60,8 @@ private abstract class Geary.ImapEngine.GenericAccount : Geary.AbstractAccount {
                 folder.email_removed.connect(notify_email_removed);
                 folder.email_locally_complete.connect(notify_email_locally_complete);
                 folder.email_flags_changed.connect(notify_email_flags_changed);
+                folder.predict_email_inserted.connect(notify_predict_email_inserted);
+                folder.unpredict_email_inserted.connect(notify_unpredict_email_inserted);
             }
         }
         if (unavailable != null) {
@@ -69,6 +71,8 @@ private abstract class Geary.ImapEngine.GenericAccount : Geary.AbstractAccount {
                 folder.email_removed.disconnect(notify_email_removed);
                 folder.email_locally_complete.disconnect(notify_email_locally_complete);
                 folder.email_flags_changed.disconnect(notify_email_flags_changed);
+                folder.predict_email_inserted.disconnect(notify_predict_email_inserted);
+                folder.unpredict_email_inserted.disconnect(notify_unpredict_email_inserted);
             }
         }
     }

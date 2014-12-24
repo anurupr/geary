@@ -56,6 +56,14 @@ public abstract class Geary.AbstractFolder : BaseObject, Geary.Folder {
         email_count_changed(new_count, reason);
     }
     
+    internal virtual void notify_predict_email_inserted(Gee.Collection<Geary.EmailIdentifier> ids) {
+        predict_email_inserted(ids);
+    }
+    
+    internal virtual void notify_unpredict_email_inserted(Gee.Collection<Geary.EmailIdentifier> ids) {
+        unpredict_email_inserted(ids);
+    }
+    
     internal virtual void notify_email_flags_changed(Gee.Map<Geary.EmailIdentifier,
         Geary.EmailFlags> flag_map) {
         email_flags_changed(flag_map);
