@@ -727,13 +727,43 @@ private class Geary.ImapDB.Folder : BaseObject, Geary.ReferenceSemantics {
         return id;
     }
     
-    public async void detach_multiple_emails_async(Gee.Collection<ImapDB.EmailIdentifier> ids,
+    // EmailIdentifiers should contain valid UIDs *for this folder* for successful linking.
+    public async void link_multiple_emails_async(Gee.Collection<ImapDB.EmailIdentifier> ids,
         Cancellable? cancellable) throws Error {
         int unread_count = 0;
-        // TODO: Right now, deleting an email is merely detaching its association with a folder
-        // (since it may be located in multiple folders).  This means at some point in the future
-        // a vacuum will be required to remove emails that are completely unassociated with the
-        // account.
+        yield db.exec_transaction_async(Db.TransactionType.RW, (cx) => {
+            // Can't use do_get_locations_for_ids, as that's keyed to this folder, which these
+            // emails don't belong to yet
+            foreach (ImapDB.EmailIdentifier id in ids) {
+                if (id.uid == null)
+                    continue;
+                
+                Db.Statement stmt = cx.prepare("""
+                    INSERT INTO MessageLocationTable
+                    (message_id, folder_id, ordering)
+                    VALUES (?, ?, ?)
+                """);
+                stmt.bind_rowid(0, id.message_id);
+                stmt.bind_rowid(1, folder_id);
+                stmt.bind_int64(2, id.uid.value);
+                
+                stmt.exec(cancellable);
+            }
+            
+            // Now with messages linked to folder, update unread count
+            unread_count = do_get_unread_count_for_ids(cx, ids, cancellable);
+            do_add_to_unread_count(cx, unread_count, cancellable);
+            
+            return Db.TransactionOutcome.COMMIT;
+        }, cancellable);
+        
+        if (unread_count > 0)
+            properties.set_status_unseen(properties.email_unread + unread_count);
+    }
+    
+    public async void unlink_multiple_emails_async(Gee.Collection<ImapDB.EmailIdentifier> ids,
+        Cancellable? cancellable) throws Error {
+        int unread_count = 0;
         yield db.exec_transaction_async(Db.TransactionType.RW, (cx) => {
             Gee.List<LocationIdentifier>? locs = do_get_locations_for_ids(cx, ids,
                 ListFlags.INCLUDE_MARKED_FOR_REMOVE, cancellable);
@@ -766,7 +796,7 @@ private class Geary.ImapDB.Folder : BaseObject, Geary.ReferenceSemantics {
             properties.set_status_unseen(properties.email_unread - unread_count);
     }
     
-    public async void detach_all_emails_async(Cancellable? cancellable) throws Error {
+    public async void unlink_all_emails_async(Cancellable? cancellable) throws Error {
         yield db.exec_transaction_async(Db.TransactionType.WO, (cx) => {
             Db.Statement stmt = cx.prepare(
                 "DELETE FROM MessageLocationTable WHERE folder_id=?");
@@ -899,7 +929,7 @@ private class Geary.ImapDB.Folder : BaseObject, Geary.ReferenceSemantics {
         }
     }
     
-    public async void detach_single_email_async(ImapDB.EmailIdentifier id, out bool is_marked,
+    public async void unlink_single_email_async(ImapDB.EmailIdentifier id, out bool is_marked,
         Cancellable? cancellable) throws Error {
         bool internal_is_marked = false;
         bool was_unread = false;
@@ -920,7 +950,7 @@ private class Geary.ImapDB.Folder : BaseObject, Geary.ReferenceSemantics {
             
             internal_is_marked = location.marked_removed;
             
-            do_remove_association_with_folder(cx, location, cancellable);
+            do_unlink_from_folder(cx, location, cancellable);
             
             return Db.TransactionOutcome.COMMIT;
         }, cancellable);
@@ -1225,7 +1255,7 @@ private class Geary.ImapDB.Folder : BaseObject, Geary.ReferenceSemantics {
     }
     
     // Note: does NOT check if message is already associated with thie folder
-    private void do_associate_with_folder(Db.Connection cx, int64 message_id, Imap.UID uid,
+    private void do_link_with_folder(Db.Connection cx, int64 message_id, Imap.UID uid,
         Cancellable? cancellable) throws Error {
         assert(message_id != Db.INVALID_ROWID);
         
@@ -1239,7 +1269,7 @@ private class Geary.ImapDB.Folder : BaseObject, Geary.ReferenceSemantics {
         stmt.exec(cancellable);
     }
     
-    private void do_remove_association_with_folder(Db.Connection cx, LocationIdentifier location,
+    private void do_unlink_from_folder(Db.Connection cx, LocationIdentifier location,
         Cancellable? cancellable) throws Error {
         Db.Statement stmt = cx.prepare(
             "DELETE FROM MessageLocationTable WHERE folder_id=? AND message_id=?");
@@ -1261,7 +1291,7 @@ private class Geary.ImapDB.Folder : BaseObject, Geary.ReferenceSemantics {
         // if found, merge, and associate if necessary
         if (location != null) {
             if (!associated)
-                do_associate_with_folder(cx, location.message_id, location.uid, cancellable);
+                do_link_with_folder(cx, location.message_id, location.uid, cancellable);
             
             // If the email came from the Imap layer, we need to fill in the id.
             ImapDB.EmailIdentifier email_id = (ImapDB.EmailIdentifier) email.id;
@@ -1331,7 +1361,7 @@ private class Geary.ImapDB.Folder : BaseObject, Geary.ReferenceSemantics {
         if (email_id.message_id == Db.INVALID_ROWID)
             email_id.promote_with_message_id(message_id);
         
-        do_associate_with_folder(cx, message_id, uid, cancellable);
+        do_link_with_folder(cx, message_id, uid, cancellable);
         
         // write out attachments, if any
         // TODO: Because this involves saving files, it potentially means holding up access to the

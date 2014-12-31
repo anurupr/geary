@@ -209,7 +209,7 @@ public class Geary.App.Conversation : BaseObject {
      * known_paths should contain all the known FolderPaths this email is contained in.
      * Conversation will monitor Account for additions and removals as they occur.
      */
-    internal bool add(Email email, Gee.Collection<Geary.FolderPath> known_paths) {
+    internal bool add(Email email, Gee.Collection<Geary.FolderPath>? known_paths) {
         if (emails.has_key(email.id))
             return false;
         
@@ -221,8 +221,10 @@ public class Geary.App.Conversation : BaseObject {
         if (ancestors != null)
             message_ids.add_all(ancestors);
         
-        foreach (Geary.FolderPath path in known_paths)
-            path_map.set(email.id, path);
+        if (known_paths != null) {
+            foreach (Geary.FolderPath path in known_paths)
+                path_map.set(email.id, path);
+        }
         
         appended(email);
         

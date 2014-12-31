@@ -109,11 +109,11 @@ private class Geary.ImapEngine.MinimalFolder : Geary.AbstractFolder, Geary.Folde
     }
     
     // used by normalize_folders() during the normalization process; should not be used elsewhere
-    private async void detach_all_emails_async(Cancellable? cancellable) throws Error {
+    private async void unlink_all_emails_async(Cancellable? cancellable) throws Error {
         Gee.List<Email>? all = yield local_folder.list_email_by_id_async(null, -1,
             Geary.Email.Field.NONE, ImapDB.Folder.ListFlags.NONE, cancellable);
         
-        yield local_folder.detach_all_emails_async(cancellable);
+        yield local_folder.unlink_all_emails_async(cancellable);
         
         if (all != null && all.size > 0) {
             Gee.List<EmailIdentifier> ids =
@@ -159,7 +159,7 @@ private class Geary.ImapEngine.MinimalFolder : Geary.AbstractFolder, Geary.Folde
                 local_properties.uid_validity.value.to_string(),
                 remote_properties.uid_validity.value.to_string());
             
-            yield detach_all_emails_async(cancellable);
+            yield unlink_all_emails_async(cancellable);
             
             return true;
         }
@@ -215,7 +215,7 @@ private class Geary.ImapEngine.MinimalFolder : Geary.AbstractFolder, Geary.Folde
                 to_string(), local_earliest_id.uid.to_string(), local_latest_id.uid.to_string(),
                 last_uid.to_string());
             
-            yield detach_all_emails_async(cancellable);
+            yield unlink_all_emails_async(cancellable);
             
             return true;
         }
@@ -380,7 +380,7 @@ private class Geary.ImapEngine.MinimalFolder : Geary.AbstractFolder, Geary.Folde
             removed_ids = yield local_folder.get_ids_async(removed_uids,
                 ImapDB.Folder.ListFlags.INCLUDE_MARKED_FOR_REMOVE, cancellable);
             if (removed_ids != null && removed_ids.size > 0) {
-                yield local_folder.detach_multiple_emails_async(removed_ids, cancellable);
+                yield local_folder.unlink_multiple_emails_async(removed_ids, cancellable);
             }
         }
         
@@ -1065,7 +1065,7 @@ private class Geary.ImapEngine.MinimalFolder : Geary.AbstractFolder, Geary.Folde
                 owned_id.to_string());
             try {
                 // Reflect change in the local store and notify subscribers
-                yield local_folder.detach_single_email_async(owned_id, out marked, null);
+                yield local_folder.unlink_single_email_async(owned_id, out marked, null);
             } catch (Error err) {
                 debug("%s do_replay_removed_message: unable to remove message #%s: %s", to_string(),
                     remote_position.to_string(), err.message);
@@ -1271,6 +1271,10 @@ private class Geary.ImapEngine.MinimalFolder : Geary.AbstractFolder, Geary.Folde
         replay_queue.schedule(move);
         yield move.wait_for_ready_async(cancellable);
         
+        // No destination EmailIdentifiers, no way to revoke (undo) this operation
+        if (Collection.is_empty(move.destination_ids))
+            return null;
+        
         return new RevokableMove(_account, path, destination, move.destination_ids);
     }
     
@@ -1369,26 +1373,24 @@ private class Geary.ImapEngine.MinimalFolder : Geary.AbstractFolder, Geary.Folde
         return ret;
     }
     
-    // To be used only by RevokableMove.  Return false if UIDs are unknown to local store.
-    internal async bool revoke_move_async(Gee.Collection<Imap.UID> uids, FolderPath source,
+    // To be used only by RevokableMove.
+    internal async void revoke_move_async(Gee.Collection<ImapDB.EmailIdentifier> ids, FolderPath source,
         Cancellable? cancellable) throws Error {
         check_open("revoke_move_async");
         
-        // need to wait for fully open to ensure UIDs are normalized between local and remove
-        yield wait_for_open_async(cancellable);
-        
-        Gee.Set<ImapDB.EmailIdentifier>? ids = yield local_folder.get_ids_async(uids,
-            ImapDB.Folder.ListFlags.NONE, cancellable);
-        if (ids == null || ids.size == 0)
-            return false;
+        // revoking back to this folder is a no-no
+        if (source.equal_to(path)) {
+            warning("[%s] Attempted to revoke move to source same as destination (%s)", to_string(),
+                source.to_string());
+            
+            return;
+        }
         
         MoveEmail move = new MoveEmail(this, traverse<ImapDB.EmailIdentifier>(ids).to_array_list(),
             source, cancellable);
         replay_queue.schedule(move);
         
         yield move.wait_for_ready_async(cancellable);
-        
-        return true;
     }
 }
 

@@ -71,7 +71,7 @@ private class Geary.ImapEngine.RemoveLocalEmailOperation : Geary.Nonblocking.Bat
     }
     
     public override async Object? execute_async(Cancellable? cancellable) throws Error {
-        yield folder.detach_multiple_emails_async((Gee.Collection<ImapDB.EmailIdentifier>) email_ids, cancellable);
+        yield folder.unlink_multiple_emails_async((Gee.Collection<ImapDB.EmailIdentifier>) email_ids, cancellable);
         
         return null;
     }

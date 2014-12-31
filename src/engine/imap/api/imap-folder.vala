@@ -675,7 +675,9 @@ private class Geary.Imap.Folder : BaseObject {
         yield exec_commands_async(cmds, null, null, cancellable);
     }
     
-    public async Gee.List<UID>? copy_email_async(MessageSet msg_set, Geary.FolderPath destination,
+    // Returns a mapping of the source UID to the destination UID.  If the MessageSet is not for
+    // UIDs, then null is returned.  If the server doesn't support COPYUID, null is returned.
+    public async Gee.Map<UID, UID>? copy_email_async(MessageSet msg_set, Geary.FolderPath destination,
         Cancellable? cancellable) throws Error {
         check_open();
         
@@ -689,16 +691,33 @@ private class Geary.Imap.Folder : BaseObject {
             return null;
         
         StatusResponse response = responses.get(cmd);
-        if (response.response_code != null) {
-            Gee.List<UID>? destination_uids = null;
+        if (response.response_code != null && msg_set.is_uid) {
+            Gee.List<UID>? src_uids = null;
+            Gee.List<UID>? dst_uids = null;
             try {
-                response.response_code.get_copyuid(null, null, out destination_uids);
+                response.response_code.get_copyuid(null, out src_uids, out dst_uids);
             } catch (ImapError ierr) {
                 debug("Unable to retrieve COPYUID UIDs: %s", ierr.message);
             }
             
-            if (destination_uids != null && destination_uids.size > 0)
-                return Geary.traverse<UID>(destination_uids).to_hash_set();
+            if (!Collection.is_empty(src_uids) && !Collection.is_empty(dst_uids)) {
+                Gee.Map<UID, UID> copyuids = new Gee.HashMap<UID, UID>();
+                int ctr = 0;
+                for (;;) {
+                    UID? src_uid = (ctr < src_uids.size) ? src_uids[ctr] : null;
+                    UID? dst_uid = (ctr < dst_uids.size) ? dst_uids[ctr] : null;
+                    
+                    if (src_uid != null && dst_uid != null)
+                        copyuids.set(src_uid, dst_uid);
+                    else
+                        break;
+                    
+                    ctr++;
+                }
+                
+                if (copyuids.size > 0)
+                    return copyuids;
+            }
         }
         
         return null;

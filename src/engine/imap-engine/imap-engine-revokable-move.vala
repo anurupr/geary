@@ -57,11 +57,11 @@ private class Geary.ImapEngine.RevokableMove : Revokable {
         
         // open, revoke, close, ensuring the close and signal disconnect are performed in all cases
         try {
-            yield dest_folder.open_async(Geary.Folder.OpenFlags.NO_DELAY, cancellable);
+            yield dest_folder.open_async(Geary.Folder.OpenFlags.NONE, cancellable);
             
             // watch out for messages detected as gone when folder is opened
-            if (can_revoke && !yield dest_folder.revoke_move_async(destination_ids, original_source,
-                cancellable)) {
+            if (can_revoke) {
+                yield dest_folder.revoke_move_async(destination_ids, original_source, cancellable);
                 can_revoke = false;
             }
         } finally {
