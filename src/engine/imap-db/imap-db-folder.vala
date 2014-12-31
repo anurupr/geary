@@ -730,28 +730,56 @@ private class Geary.ImapDB.Folder : BaseObject, Geary.ReferenceSemantics {
     // EmailIdentifiers should contain valid UIDs *for this folder* for successful linking.
     public async void link_multiple_emails_async(Gee.Collection<ImapDB.EmailIdentifier> ids,
         Cancellable? cancellable) throws Error {
+        // store in hash set for closure, which potentially modifies the collection
+        Gee.HashSet<ImapDB.EmailIdentifier> id_set = traverse<ImapDB.EmailIdentifier>(ids).to_hash_set();
+        
         int unread_count = 0;
         yield db.exec_transaction_async(Db.TransactionType.RW, (cx) => {
             // Can't use do_get_locations_for_ids, as that's keyed to this folder, which these
             // emails don't belong to yet
-            foreach (ImapDB.EmailIdentifier id in ids) {
-                if (id.uid == null)
+            Gee.Iterator<ImapDB.EmailIdentifier> iter = id_set.iterator();
+            while (iter.next()) {
+                ImapDB.EmailIdentifier id = iter.get();
+                if (id.uid == null) {
+                    iter.remove();
+                    
                     continue;
+                }
                 
+                // If already present, don't insert
                 Db.Statement stmt = cx.prepare("""
-                    INSERT INTO MessageLocationTable
-                    (message_id, folder_id, ordering)
-                    VALUES (?, ?, ?)
+                    SELECT id
+                    FROM MessageLocationTable
+                    WHERE message_id = ? AND folder_id = ? AND ordering = ?
                 """);
                 stmt.bind_rowid(0, id.message_id);
                 stmt.bind_rowid(1, folder_id);
                 stmt.bind_int64(2, id.uid.value);
                 
+                Db.Result result = stmt.exec(cancellable);
+                if (!result.finished) {
+                    // clear remove marker, if set
+                    do_mark_unmark_removed(cx, iterate<Imap.UID>(id.uid).to_array_list(), false,
+                        cancellable);
+                    
+                    continue;
+                }
+                
+                stmt = cx.prepare("""
+                    INSERT INTO MessageLocationTable
+                    (message_id, folder_id, ordering, remove_marker)
+                    VALUES (?, ?, ?, ?)
+                """);
+                stmt.bind_rowid(0, id.message_id);
+                stmt.bind_rowid(1, folder_id);
+                stmt.bind_int64(2, id.uid.value);
+                stmt.bind_bool(3, false);
+                
                 stmt.exec(cancellable);
             }
             
-            // Now with messages linked to folder, update unread count
-            unread_count = do_get_unread_count_for_ids(cx, ids, cancellable);
+            // Now with messages linked to folder, update unread count with ids that were linked
+            unread_count = do_get_unread_count_for_ids(cx, id_set, cancellable);
             do_add_to_unread_count(cx, unread_count, cancellable);
             
             return Db.TransactionOutcome.COMMIT;
@@ -1187,14 +1215,14 @@ private class Geary.ImapDB.Folder : BaseObject, Geary.ReferenceSemantics {
         LocationIdentifier? location = null;
         // See if it already exists; first by UID (which is only guaranteed to
         // be unique in a folder, not account-wide)
-        if (email_id.uid != null)
+        if (email_id.uid != null) {
             location = do_get_location_for_uid(cx, email_id.uid, ListFlags.INCLUDE_MARKED_FOR_REMOVE,
                 cancellable);
-        
-        if (location != null) {
-            associated = true;
-            
-            return location;
+            if (location != null) {
+                associated = true;
+                
+                return location;
+            }
         }
         
         // if fields not present, then no duplicate can reliably be found
@@ -1226,32 +1254,18 @@ private class Geary.ImapDB.Folder : BaseObject, Geary.ReferenceSemantics {
         stmt.bind_int64(1, rfc822_size);
         
         Db.Result results = stmt.exec(cancellable);
-        // no duplicates found
         if (results.finished)
             return null;
         
+        // if found, then consider it to be a duplicate that can be associated with this folder
         int64 message_id = results.rowid_at(0);
         if (results.next(cancellable)) {
             debug("Warning: multiple messages with the same internaldate (%s) and size (%s) in %s",
                 internaldate, rfc822_size.to_string(), to_string());
         }
         
-        Db.Statement search_stmt = cx.prepare(
-            "SELECT ordering, remove_marker FROM MessageLocationTable WHERE message_id=? AND folder_id=?");
-        search_stmt.bind_rowid(0, message_id);
-        search_stmt.bind_rowid(1, folder_id);
-        
-        Db.Result search_results = search_stmt.exec(cancellable);
-        if (!search_results.finished) {
-            associated = true;
-            location = new LocationIdentifier(message_id, new Imap.UID(search_results.int64_at(0)),
-                search_results.bool_at(1));
-        } else {
-            assert(email_id.uid != null);
-            location = new LocationIdentifier(message_id, email_id.uid, false);
-        }
-        
-        return location;
+        assert(email_id.uid != null);
+        return new LocationIdentifier(message_id, email_id.uid, false);
     }
     
     // Note: does NOT check if message is already associated with thie folder

@@ -63,6 +63,18 @@ private class Geary.ImapEngine.RevokableMove : Revokable {
             if (can_revoke) {
                 yield dest_folder.revoke_move_async(destination_ids, original_source, cancellable);
                 can_revoke = false;
+                
+                // there's not a super-reliable way to wait until the delete of the message in this
+                // folder has completed; could wait for the UID to be reported deleted, but it's
+                // possible in IMAP to delete a message not present in folder and not get an error
+                // (but also not be notified of its removal), and so waiting is a bad idea.  Don't
+                // want to close the folder immediately because that leaves the local remove_marker
+                // in place and the folder is treated as "dirty", causing a full renormalize to
+                // occur when next opened, which is expensive.  So: just wait a bit and give the
+                // server a chance to report the message is gone, leaving the db in a good state.
+                // Do this *after* marking can_revoke=false so client is notified that this object
+                // is now worthless.
+                yield Scheduler.sleep_async(5);
             }
         } finally {
             // note that the Cancellable is not used
@@ -101,6 +113,7 @@ private class Geary.ImapEngine.RevokableMove : Revokable {
         // convert generic identifiers to UIDs
         Gee.HashSet<Imap.UID> removed_uids = traverse<EmailIdentifier>(ids)
             .cast_object<ImapDB.EmailIdentifier>()
+            .filter(id => id.uid == null)
             .map<Imap.UID>(id => id.uid)
             .to_hash_set();
         

@@ -223,10 +223,14 @@ private class Geary.ImapEngine.MinimalFolder : Geary.AbstractFolder, Geary.Folde
         // if UIDNEXT has changed, that indicates messages have been appended (and possibly removed)
         int64 uidnext_diff = remote_properties.uid_next.value - local_properties.uid_next.value;
         
-        int local_message_count = (local_properties.select_examine_messages >= 0)
-            ? local_properties.select_examine_messages : 0;
+        int local_message_count = yield local_folder.get_email_count_async(
+            ImapDB.Folder.ListFlags.INCLUDE_MARKED_FOR_REMOVE, cancellable);
+        
         int remote_message_count = (remote_properties.select_examine_messages >= 0)
             ? remote_properties.select_examine_messages : 0;
+        
+        debug("%s: local_message_count=%d remote_message_count=%d", to_string(),
+            local_message_count, remote_message_count);
         
         // if UIDNEXT is the same as last time AND the total count of email is the same, then
         // nothing has been added or removed

@@ -50,7 +50,7 @@ private class Geary.ImapEngine.MoveEmail : Geary.ImapEngine.SendReplayOperation 
         
         engine.notify_email_removed(moved_ids);
         
-        engine.notify_email_count_changed(Numeric.int_floor(original_count - to_move.size, 0),
+        engine.notify_email_count_changed(Numeric.int_floor(original_count - moved_ids.size, 0),
             Geary.Folder.CountChangeReason.REMOVED);
         
         // Report to the local destination Folder that new messages are predicted to arrive
@@ -98,6 +98,7 @@ private class Geary.ImapEngine.MoveEmail : Geary.ImapEngine.SendReplayOperation 
         foreach (Imap.MessageSet msg_set in msg_sets) {
             Gee.Map<Imap.UID, Imap.UID>? copyuids = yield engine.remote_folder.copy_email_async(msg_set,
                 destination, null);
+            yield engine.remote_folder.remove_email_async(msg_set, null);
             
             // convert returned COPYUID response into EmailIdentifiers for the destination folder
             if (copyuids != null && copyuids.size > 0) {
@@ -111,21 +112,19 @@ private class Geary.ImapEngine.MoveEmail : Geary.ImapEngine.SendReplayOperation 
                     }
                 }
             }
-            
-            yield engine.remote_folder.remove_email_async(msg_set, null);
         }
         
         if (acc_ids.size > 0) {
             // link the destination id's to the local folder, which saves a little trouble when
             // normalizing with the remote as well as makes revoking them work properly
-            MinimalFolder? dest_folder = (yield engine.account.fetch_folder_async(destination, cancellable))
+            MinimalFolder? dest_folder = (yield engine.account.fetch_folder_async(destination))
                 as MinimalFolder;
             if (dest_folder != null) {
                 try {
                     // Note that this doesn't require dest_folder be open because we're going straight
                     // to the database...dest_folder will announce to its subscribers changes when
                     // normalization/notification occurs via IMAP
-                    yield dest_folder.local_folder.link_multiple_emails_async(acc_ids, cancellable);
+                    yield dest_folder.local_folder.link_multiple_emails_async(acc_ids, null);
                     destination_ids = acc_ids;
                 } catch (Error err) {
                     debug("Unable to link moved emails to new folder: %s", err.message);

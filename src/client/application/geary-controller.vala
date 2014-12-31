@@ -2370,7 +2370,7 @@ public class GearyController : Geary.BaseObject {
         
         Gtk.Action undo_action = GearyApplication.instance.get_action(ACTION_UNDO);
         undo_action.sensitive = revokable != null && revokable.can_revoke;
-        undo_action.tooltip = (revokable != null && description != null) ? description : "";
+        undo_action.tooltip = (revokable != null && description != null) ? description : _("Undo");
     }
     
     private void on_can_revoke_changed() {
