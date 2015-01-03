@@ -43,6 +43,10 @@ private class Geary.ImapEngine.RevokableMove : Revokable {
     }
     
     private async bool internal_revoke_async(Cancellable? cancellable) throws Error {
+        // at this point, it's a one-shot deal: any error from here on out, or success, revoke
+        // is completed
+        can_revoke = false;
+        
         // moving from original destination to original source
         MinimalFolder? dest_folder = null;
         try {
@@ -53,16 +57,15 @@ private class Geary.ImapEngine.RevokableMove : Revokable {
         }
         
         if (dest_folder == null)
-            return can_revoke = false;
+            return can_revoke;
         
         // open, revoke, close, ensuring the close and signal disconnect are performed in all cases
         try {
             yield dest_folder.open_async(Geary.Folder.OpenFlags.NONE, cancellable);
             
             // watch out for messages detected as gone when folder is opened
-            if (can_revoke) {
+            if (destination_ids.size > 0) {
                 yield dest_folder.revoke_move_async(destination_ids, original_source, cancellable);
-                can_revoke = false;
                 
                 // there's not a super-reliable way to wait until the delete of the message in this
                 // folder has completed; could wait for the UID to be reported deleted, but it's
